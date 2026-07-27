@@ -18,7 +18,14 @@ import torch
 import torch.nn.functional as F
 
 from .hotflip import ContrieverHotFlipAttacker, HotFlipConfig, mean_pool
-from .metrics import answer_metrics, normalize_answer
+from .metrics import (
+    answer_metrics,
+    canonical_answer,
+    contains_complete_answer,
+    contains_shortened_name,
+    has_strong_conflict,
+    normalize_answer,
+)
 
 
 def set_seed(seed: int) -> None:
@@ -133,20 +140,28 @@ class QAGenerator:
     @staticmethod
     def build_judge_prompt(question: str, gold_answer: str, predicted_answer: str) -> str:
         return (
-            "You are a lenient answer-correctness evaluator.\n"
-            "Return YES whenever the predicted answer contains the correct reference "
-            "answer or clearly expresses the same core fact for the given question.\n"
-            "The prediction does not need to match the reference wording exactly.\n"
+            "You are a very lenient answer-correctness evaluator. Favor recall over "
+            "strict wording agreement.\n"
+            "Return YES whenever the predicted answer contains the reference answer, "
+            "contains a common shortened form of it, or clearly expresses the same "
+            "core fact for the given question.\n"
+            "The prediction does not need to match the reference wording or length.\n"
             "Accept capitalization and punctuation differences, paraphrases, aliases, "
             "abbreviations, equivalent units, and equivalent date/range formats.\n"
             "Accept extra explanation, surrounding text, or additional non-conflicting "
-            "details when the correct answer is still present.\n"
+            "details when the correct answer is still present. An added year, occupation, "
+            "title, or biographical detail is not a conflict by itself.\n"
             "Examples that must be marked YES:\n"
             "- Reference '1969 until 1974'; prediction '1969-1974'.\n"
             "- Reference 'Paris'; prediction 'Paris, the capital of France.'\n"
             "- Reference 'Richard Nixon'; prediction 'President Richard Nixon'.\n"
-            "Return NO only when the core answer is absent, factually wrong, refers to "
-            "a different entity, or is contradicted by the added text.\n"
+            "- Reference 'Barton Lee Hazlewood'; prediction 'Lee Hazlewood died in 2007.'\n"
+            "- Reference \"IFFHS World's Best Goalkeeper\"; prediction "
+            "\"the IFFHS World's Best Goalkeeper in 1992\".\n"
+            "Return NO only when the core answer is absent or when the prediction "
+            "directly denies it, gives a clearly different answer, or contains a strong "
+            "mutually exclusive contradiction. Do not reject merely because extra text "
+            "is present or because a full name is shortened unambiguously.\n"
             "Return exactly one token: YES or NO. Do not explain.\n\n"
             f"Question: {question}\n"
             f"Reference answer: {gold_answer}\n"
@@ -165,6 +180,38 @@ class QAGenerator:
                 "correct": True,
                 "raw": "EXACT_MATCH",
                 "method": "normalized_exact_match",
+                "normalized_gold": normalized_gold,
+                "normalized_prediction": normalized_prediction,
+            }
+        canonical_gold = canonical_answer(gold_answer)
+        canonical_prediction = canonical_answer(predicted_answer)
+        if canonical_gold and canonical_gold == canonical_prediction:
+            return {
+                "correct": True,
+                "raw": "CANONICAL_EQUIVALENCE",
+                "method": "deterministic_canonical",
+                "normalized_gold": normalized_gold,
+                "normalized_prediction": normalized_prediction,
+            }
+        if (
+            contains_complete_answer(predicted_answer, gold_answer)
+            and not has_strong_conflict(predicted_answer, gold_answer)
+        ):
+            return {
+                "correct": True,
+                "raw": "ANSWER_CONTAINED",
+                "method": "deterministic_containment",
+                "normalized_gold": normalized_gold,
+                "normalized_prediction": normalized_prediction,
+            }
+        if (
+            contains_shortened_name(predicted_answer, gold_answer)
+            and not has_strong_conflict(predicted_answer, gold_answer)
+        ):
+            return {
+                "correct": True,
+                "raw": "SHORTENED_NAME_MATCH",
+                "method": "deterministic_alias",
                 "normalized_gold": normalized_gold,
                 "normalized_prediction": normalized_prediction,
             }

@@ -34,12 +34,14 @@ python -m hotflip_rag.baseline `
 
 Mỗi mẫu in câu hỏi, đáp án đúng, đáp án LLM, từng context Contriever lấy,
 cosine score, EM/F1, phán quyết của hybrid judge, xác suất cả chuỗi đáp án
-chuẩn và geometric-mean token probability. Hybrid judge kiểm tra normalized
-Exact Match trước và chấp nhận ngay nếu khớp; chỉ khi EM không khớp mới gọi
-Qwen 7B chấm YES/NO bằng tiêu chí mềm, chấp nhận đáp án đúng nằm trong phần
-giải thích dài hơn miễn là không có nội dung mâu thuẫn. Báo cáo cuối in retrieval
-recall, Hybrid Judge Accuracy, Exact Match Accuracy và Average F1. Kết quả cũng
-được lưu thành CSV, JSONL và aggregate JSON.
+chuẩn và geometric-mean token probability. Hybrid judge lần lượt kiểm tra
+normalized Exact Match, các biến thể định dạng chắc chắn tương đương và việc
+toàn bộ đáp án chuẩn có nằm trong câu trả lời dài hơn hay không. Chỉ các trường
+hợp còn mơ hồ mới được Qwen 7B chấm YES/NO. Vì vậy `from 1986 to 2013`,
+`1986-2013` và `1986 to 2013` được tính giống nhau; lời giải thích sau một đáp
+án đúng cũng được chấp nhận. Báo cáo cuối in retrieval recall, Hybrid Judge
+Accuracy, Exact Match Accuracy và Average F1. Kết quả cũng được lưu thành CSV,
+JSONL và aggregate JSON.
 
 Khác với yêu cầu “fixed retrieved context” trong bản mô tả đính kèm, pipeline
 này làm đúng thứ tự được yêu cầu sau cùng:
