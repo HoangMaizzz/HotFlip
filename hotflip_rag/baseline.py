@@ -42,9 +42,12 @@ def load_models(args):
     )
 
     device = torch.device(args.device)
+    print(f"[1/4] Loading retriever tokenizer: {args.retriever_model}", flush=True)
     retriever_tokenizer = AutoTokenizer.from_pretrained(args.retriever_model)
+    print(f"[1/4] Loading retriever model: {args.retriever_model}", flush=True)
     retriever_model = AutoModel.from_pretrained(args.retriever_model).to(device).eval()
 
+    print(f"[2/4] Loading generator tokenizer: {args.generator_model}", flush=True)
     generator_tokenizer = AutoTokenizer.from_pretrained(args.generator_model)
     if args.load_in_4bit:
         if device.type != "cuda":
@@ -59,6 +62,11 @@ def load_models(args):
             bnb_4bit_quant_type="nf4",
             bnb_4bit_use_double_quant=True,
             bnb_4bit_compute_dtype=compute_dtype,
+        )
+        print(
+            f"[2/4] Loading 4-bit generator: {args.generator_model} "
+            f"(compute dtype={compute_dtype})",
+            flush=True,
         )
         generator_model = AutoModelForCausalLM.from_pretrained(
             args.generator_model,
@@ -75,6 +83,7 @@ def load_models(args):
         if device.type != "cuda":
             generator_model.to(device)
     generator_model.eval()
+    print("[2/4] Models are ready.", flush=True)
     return retriever_model, retriever_tokenizer, generator_model, generator_tokenizer
 
 
@@ -114,6 +123,10 @@ def run_baseline(args) -> dict[str, Any]:
     from datasets import load_dataset
 
     set_seed(args.seed)
+    if args.device.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA is not available. In Colab choose Runtime > Change runtime type > T4 GPU."
+        )
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     retriever_model, retriever_tokenizer, generator_model, generator_tokenizer = (
@@ -127,15 +140,24 @@ def run_baseline(args) -> dict[str, Any]:
         generator_model, generator_tokenizer, args.max_generator_input_tokens
     )
 
-    dataset = load_dataset("hotpot_qa", "distractor", split=args.split)
+    print(
+        f"[3/4] Loading dataset hotpotqa/hotpot_qa, "
+        f"config=distractor, split={args.split}",
+        flush=True,
+    )
+    dataset = load_dataset(
+        "hotpotqa/hotpot_qa", "distractor", split=args.split
+    )
+    print(f"[3/4] Dataset ready: {len(dataset)} rows.", flush=True)
     indices = list(range(len(dataset)))
     if args.shuffle:
         random.Random(args.seed).shuffle(indices)
     selected = indices[: args.num_examples]
+    print("[4/4] Starting baseline evaluation.", flush=True)
 
     print("\n" + "=" * 100)
     print("HOT POT QA — CONTRIEVER + QWEN 7B BASELINE")
-    print(f"Dataset          : hotpot_qa/distractor/{args.split}")
+    print(f"Dataset          : hotpotqa/hotpot_qa/distractor/{args.split}")
     print(f"Examples         : {len(selected)}")
     print(f"Retriever        : {args.retriever_model}")
     print(f"Retriever top-k  : {args.top_k}")
