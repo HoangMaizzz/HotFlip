@@ -13,6 +13,12 @@ class BaselineTests(unittest.TestCase):
         self.assertIn("no explanation", prompt)
         self.assertTrue(prompt.endswith("Final answer:"))
 
+    def test_judge_prompt_requires_yes_or_no(self):
+        prompt = QAGenerator.build_judge_prompt("Who?", "John Smith", "Smith")
+        self.assertIn("Return exactly one token: YES or NO", prompt)
+        self.assertIn("Reference answer: John Smith", prompt)
+        self.assertIn("Predicted answer: Smith", prompt)
+
     def test_hotpot_passages_keep_documents_separate_and_hide_no_candidates(self):
         item = {
             "context": {

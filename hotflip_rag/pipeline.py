@@ -130,6 +130,53 @@ class QAGenerator:
                 answer = answer[len(prefix) :].strip()
         return answer
 
+    @staticmethod
+    def build_judge_prompt(question: str, gold_answer: str, predicted_answer: str) -> str:
+        return (
+            "You are a strict answer evaluator.\n"
+            "Decide whether the predicted answer is semantically equivalent to "
+            "the reference answer for the given question.\n"
+            "Accept harmless differences in capitalization, punctuation, articles, "
+            "word order, common abbreviations, and clearly equivalent aliases.\n"
+            "Reject answers that are only partially correct, contain a factual "
+            "contradiction, refer to a different entity, or add an incompatible claim.\n"
+            "Return exactly one token: YES or NO. Do not explain.\n\n"
+            f"Question: {question}\n"
+            f"Reference answer: {gold_answer}\n"
+            f"Predicted answer: {predicted_answer}\n"
+            "Judgment:"
+        )
+
+    @torch.no_grad()
+    def judge_answer(
+        self, question: str, gold_answer: str, predicted_answer: str
+    ) -> dict[str, Any]:
+        prompt = self.build_judge_prompt(question, gold_answer, predicted_answer)
+        inputs = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=self.max_input_tokens,
+        ).to(self.device)
+        output = self.model.generate(
+            **inputs,
+            max_new_tokens=3,
+            do_sample=False,
+            num_beams=1,
+            pad_token_id=self.tokenizer.eos_token_id,
+        )
+        raw = self.tokenizer.decode(
+            output[0, inputs.input_ids.shape[1] :], skip_special_tokens=True
+        ).strip()
+        normalized = raw.upper().strip()
+        if normalized.startswith("YES"):
+            correct: bool | None = True
+        elif normalized.startswith("NO"):
+            correct = False
+        else:
+            correct = None
+        return {"correct": correct, "raw": raw}
+
     @torch.no_grad()
     def gold_answer_probability(
         self, question: str, context: str, gold_answer: str

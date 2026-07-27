@@ -97,6 +97,13 @@ def print_example(result: dict[str, Any], current: int, total: int) -> None:
         f"ĐÁNH GIÁ      : EM={result['metrics']['em']:.0f} | "
         f"F1={result['metrics']['f1']:.4f}"
     )
+    judge = result["llm_judge"]
+    judge_label = (
+        "ĐÚNG" if judge["correct"] is True
+        else "SAI" if judge["correct"] is False
+        else "KHÔNG HỢP LỆ"
+    )
+    print(f"LLM JUDGE     : {judge_label} | raw={judge['raw']!r}")
     probability = result["gold_answer_probability"]
     print(
         "XÁC SUẤT GOLD : "
@@ -169,6 +176,7 @@ def run_baseline(args) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
     em_sum = f1_sum = 0.0
+    judge_correct_count = judge_valid_count = 0
     any_gold_count = all_gold_count = 0
 
     for number, dataset_index in enumerate(selected, 1):
@@ -181,6 +189,9 @@ def run_baseline(args) -> dict[str, Any]:
                 item["question"], context, args.max_new_tokens
             )
             metrics = answer_metrics(llm_answer, item["answer"])
+            llm_judge = generator.judge_answer(
+                item["question"], item["answer"], llm_answer
+            )
             probability = generator.gold_answer_probability(
                 item["question"], context, item["answer"]
             )
@@ -190,6 +201,9 @@ def run_baseline(args) -> dict[str, Any]:
             all_gold = supporting_titles.issubset(retrieved_titles)
             em_sum += metrics["em"]
             f1_sum += metrics["f1"]
+            if llm_judge["correct"] is not None:
+                judge_valid_count += 1
+                judge_correct_count += int(llm_judge["correct"])
             any_gold_count += int(any_gold)
             all_gold_count += int(all_gold)
             evaluated_so_far = len(results) + 1
@@ -205,6 +219,7 @@ def run_baseline(args) -> dict[str, Any]:
                 "retrieved_any_gold": any_gold,
                 "retrieved_all_gold": all_gold,
                 "metrics": metrics,
+                "llm_judge": llm_judge,
                 "gold_answer_probability": probability,
                 "running_em_accuracy": 0.0,
                 "running_average_f1": 0.0,
@@ -228,6 +243,11 @@ def run_baseline(args) -> dict[str, Any]:
         "retriever_all_gold_recall": all_gold_count / evaluated if evaluated else 0.0,
         "llm_exact_match_accuracy": em_sum / evaluated if evaluated else 0.0,
         "llm_average_f1": f1_sum / evaluated if evaluated else 0.0,
+        "llm_judge_valid_examples": judge_valid_count,
+        "llm_judge_invalid_examples": evaluated - judge_valid_count,
+        "llm_judge_accuracy": (
+            judge_correct_count / judge_valid_count if judge_valid_count else 0.0
+        ),
         "average_gold_sequence_probability": (
             sum(r["gold_answer_probability"]["sequence_probability"] for r in results)
             / evaluated if evaluated else 0.0
@@ -252,6 +272,7 @@ def run_baseline(args) -> dict[str, Any]:
     csv_columns = [
         "id", "question", "gold_answer", "llm_answer", "retrieved_context",
         "retrieved_any_gold", "retrieved_all_gold", "em", "f1",
+        "llm_judge_correct", "llm_judge_raw",
         "gold_sequence_probability", "gold_mean_token_probability", "gold_mean_nll",
     ]
     with (output_dir / "baseline_results.csv").open(
@@ -271,6 +292,8 @@ def run_baseline(args) -> dict[str, Any]:
                     "retrieved_all_gold": result["retrieved_all_gold"],
                     "em": result["metrics"]["em"],
                     "f1": result["metrics"]["f1"],
+                    "llm_judge_correct": result["llm_judge"]["correct"],
+                    "llm_judge_raw": result["llm_judge"]["raw"],
                     "gold_sequence_probability": result["gold_answer_probability"]["sequence_probability"],
                     "gold_mean_token_probability": result["gold_answer_probability"]["mean_token_probability"],
                     "gold_mean_nll": result["gold_answer_probability"]["mean_nll"],
@@ -284,6 +307,8 @@ def run_baseline(args) -> dict[str, Any]:
     print(f"Retriever lấy đủ Gold documents  : {aggregate['retriever_all_gold_recall'] * 100:.2f}%")
     print(f"LLM Exact Match Accuracy          : {aggregate['llm_exact_match_accuracy'] * 100:.2f}%")
     print(f"LLM Average F1                    : {aggregate['llm_average_f1'] * 100:.2f}%")
+    print(f"LLM-as-Judge Accuracy             : {aggregate['llm_judge_accuracy'] * 100:.2f}%")
+    print(f"LLM-as-Judge valid judgments      : {aggregate['llm_judge_valid_examples']}/{evaluated}")
     print(
         "Gold mean-token probability      : "
         f"{aggregate['average_gold_mean_token_probability'] * 100:.2f}%"
@@ -306,7 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--load-in-4bit", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--prefer-bfloat16", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--top-k", type=int, default=2)
+    parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument("--max-context-tokens", type=int, default=512)
     parser.add_argument("--max-generator-input-tokens", type=int, default=3072)
     parser.add_argument("--max-new-tokens", type=int, default=20)

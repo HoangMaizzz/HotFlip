@@ -16,7 +16,7 @@ Baseline chưa dùng HotFlip:
 ```text
 question
   -> facebook/contriever xếp hạng 10 HotpotQA documents
-  -> lấy top-2 passages
+  -> lấy top-3 passages
   -> Qwen/Qwen2.5-7B-Instruct (4-bit trên Colab)
   -> câu trả lời và báo cáo xác suất
 ```
@@ -27,15 +27,16 @@ Có thể chạy tương đương bằng lệnh:
 python -m hotflip_rag.baseline `
   --split validation `
   --num-examples 100 `
-  --top-k 2 `
+  --top-k 3 `
   --load-in-4bit `
   --output-dir outputs/colab_baseline
 ```
 
 Mỗi mẫu in câu hỏi, đáp án đúng, đáp án LLM, từng context Contriever lấy,
-cosine score, EM/F1, xác suất cả chuỗi đáp án chuẩn và geometric-mean token
-probability. Báo cáo cuối in retrieval recall, Exact Match Accuracy và Average
-F1. Kết quả cũng được lưu thành CSV, JSONL và aggregate JSON.
+cosine score, EM/F1, phán quyết YES/NO của Qwen 7B, xác suất cả chuỗi đáp án
+chuẩn và geometric-mean token probability. Báo cáo cuối in retrieval recall,
+LLM-as-Judge Accuracy, Exact Match Accuracy và Average F1. Kết quả cũng được
+lưu thành CSV, JSONL và aggregate JSON.
 
 Khác với yêu cầu “fixed retrieved context” trong bản mô tả đính kèm, pipeline
 này làm đúng thứ tự được yêu cầu sau cùng:
