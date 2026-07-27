@@ -3,9 +3,16 @@ from __future__ import annotations
 import unittest
 
 from hotflip_rag.baseline import hotpot_passages
+from hotflip_rag.pipeline import QAGenerator
 
 
 class BaselineTests(unittest.TestCase):
+    def test_prompt_requires_answer_only(self):
+        prompt = QAGenerator.build_prompt("Where?", "Place: Here.")
+        self.assertIn("Return only the final answer", prompt)
+        self.assertIn("no explanation", prompt)
+        self.assertTrue(prompt.endswith("Final answer:"))
+
     def test_hotpot_passages_keep_documents_separate_and_hide_no_candidates(self):
         item = {
             "context": {

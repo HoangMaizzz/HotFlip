@@ -95,9 +95,14 @@ class QAGenerator:
     @staticmethod
     def build_prompt(question: str, context: str) -> str:
         return (
-            "Answer the question based ONLY on the context below. "
-            "Give a short and direct answer.\n\n"
-            f"Context:\n{context}\n\nQuestion: {question}\nShort Answer:"
+            "You are a question-answering system.\n"
+            "Use only the supplied context to answer the question.\n"
+            "Return only the final answer: no explanation, no reasoning, "
+            "no introductory phrase, and do not repeat the question.\n"
+            "The response must contain only the shortest answer text needed.\n\n"
+            f"Context:\n{context}\n\n"
+            f"Question: {question}\n"
+            "Final answer:"
         )
 
     @torch.no_grad()
@@ -119,7 +124,11 @@ class QAGenerator:
         answer = self.tokenizer.decode(
             output[0, inputs.input_ids.shape[1] :], skip_special_tokens=True
         )
-        return answer.strip().splitlines()[0].replace("Short Answer:", "").strip()
+        answer = answer.strip().splitlines()[0].strip()
+        for prefix in ("Final answer:", "Final Answer:", "Answer:", "Short Answer:"):
+            if answer.startswith(prefix):
+                answer = answer[len(prefix) :].strip()
+        return answer
 
     @torch.no_grad()
     def gold_answer_probability(
