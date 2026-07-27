@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 
 from hotflip_rag.baseline import hotpot_passages
-from hotflip_rag.metrics import canonical_semantic_answer
 from hotflip_rag.pipeline import QAGenerator
 
 
@@ -17,13 +16,19 @@ class BaselineTests(unittest.TestCase):
     def test_judge_prompt_requires_yes_or_no(self):
         prompt = QAGenerator.build_judge_prompt("Who?", "John Smith", "Smith")
         self.assertIn("Return exactly one token: YES or NO", prompt)
+        self.assertIn("Accept extra explanation", prompt)
+        self.assertIn("contains the correct reference answer", prompt)
         self.assertIn("Reference answer: John Smith", prompt)
         self.assertIn("Predicted answer: Smith", prompt)
 
-    def test_equivalent_year_ranges_have_same_canonical_form(self):
-        variants = ["1969 until 1974", "1969-1974", "from 1969 through 1974"]
-        normalized = {canonical_semantic_answer(value) for value in variants}
-        self.assertEqual(normalized, {"1969 to 1974"})
+    def test_exact_match_is_accepted_without_model_judge(self):
+        generator = QAGenerator.__new__(QAGenerator)
+        judgment = generator.judge_answer(
+            "Which city?", "The Paris.", "paris"
+        )
+        self.assertTrue(judgment["correct"])
+        self.assertEqual(judgment["method"], "normalized_exact_match")
+        self.assertEqual(judgment["raw"], "EXACT_MATCH")
 
     def test_hotpot_passages_keep_documents_separate_and_hide_no_candidates(self):
         item = {

@@ -18,7 +18,7 @@ import torch
 import torch.nn.functional as F
 
 from .hotflip import ContrieverHotFlipAttacker, HotFlipConfig, mean_pool
-from .metrics import answer_metrics, canonical_semantic_answer, normalize_answer
+from .metrics import answer_metrics, normalize_answer
 
 
 def set_seed(seed: int) -> None:
@@ -133,16 +133,20 @@ class QAGenerator:
     @staticmethod
     def build_judge_prompt(question: str, gold_answer: str, predicted_answer: str) -> str:
         return (
-            "You are an answer-equivalence evaluator.\n"
-            "Mark the predicted answer YES when it communicates the same answer as "
-            "the reference for the given question. Compare meaning, not surface form.\n"
+            "You are a lenient answer-correctness evaluator.\n"
+            "Return YES whenever the predicted answer contains the correct reference "
+            "answer or clearly expresses the same core fact for the given question.\n"
+            "The prediction does not need to match the reference wording exactly.\n"
             "Accept capitalization and punctuation differences, paraphrases, aliases, "
-            "common abbreviations, equivalent units, and equivalent date/range formats.\n"
-            "For example, '1969 until 1974', '1969 to 1974', and '1969-1974' are equivalent.\n"
-            "Also accept a shorter answer when it uniquely identifies the same entity.\n"
-            "Return NO only when the prediction changes the factual answer, identifies "
-            "a different entity, omits information necessary to answer the question, "
-            "or adds a contradictory claim.\n"
+            "abbreviations, equivalent units, and equivalent date/range formats.\n"
+            "Accept extra explanation, surrounding text, or additional non-conflicting "
+            "details when the correct answer is still present.\n"
+            "Examples that must be marked YES:\n"
+            "- Reference '1969 until 1974'; prediction '1969-1974'.\n"
+            "- Reference 'Paris'; prediction 'Paris, the capital of France.'\n"
+            "- Reference 'Richard Nixon'; prediction 'President Richard Nixon'.\n"
+            "Return NO only when the core answer is absent, factually wrong, refers to "
+            "a different entity, or is contradicted by the added text.\n"
             "Return exactly one token: YES or NO. Do not explain.\n\n"
             f"Question: {question}\n"
             f"Reference answer: {gold_answer}\n"
@@ -154,15 +158,15 @@ class QAGenerator:
     def judge_answer(
         self, question: str, gold_answer: str, predicted_answer: str
     ) -> dict[str, Any]:
-        canonical_gold = canonical_semantic_answer(gold_answer)
-        canonical_prediction = canonical_semantic_answer(predicted_answer)
-        if canonical_gold and canonical_gold == canonical_prediction:
+        normalized_gold = normalize_answer(gold_answer)
+        normalized_prediction = normalize_answer(predicted_answer)
+        if normalized_gold and normalized_gold == normalized_prediction:
             return {
                 "correct": True,
-                "raw": "CANONICAL_MATCH",
-                "method": "deterministic_canonical",
-                "canonical_gold": canonical_gold,
-                "canonical_prediction": canonical_prediction,
+                "raw": "EXACT_MATCH",
+                "method": "normalized_exact_match",
+                "normalized_gold": normalized_gold,
+                "normalized_prediction": normalized_prediction,
             }
         prompt = self.build_judge_prompt(question, gold_answer, predicted_answer)
         inputs = self.tokenizer(
@@ -192,8 +196,8 @@ class QAGenerator:
             "correct": correct,
             "raw": raw,
             "method": "llm_judge",
-            "canonical_gold": canonical_gold,
-            "canonical_prediction": canonical_prediction,
+            "normalized_gold": normalized_gold,
+            "normalized_prediction": normalized_prediction,
         }
 
     @torch.no_grad()

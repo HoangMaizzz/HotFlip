@@ -12,22 +12,6 @@ def normalize_answer(text: str) -> str:
     return " ".join(text.split())
 
 
-def canonical_semantic_answer(text: str) -> str:
-    """Normalize unambiguous surface variants before asking an LLM judge.
-
-    This is intentionally conservative. It handles formatting differences such
-    as ``1969 until 1974`` versus ``1969-1974`` without making fuzzy semantic
-    decisions that belong to the judge model.
-    """
-    text = text.lower().strip()
-    text = re.sub(r"[‐‑‒–—−-]", " to ", text)
-    text = re.sub(r"\b(until|till|through|thru)\b", " to ", text)
-    text = re.sub(r"\bfrom\s+(?=\d)", "", text)
-    text = re.sub(r"\b(a|an|the)\b", " ", text)
-    text = "".join(" " if ch in string.punctuation else ch for ch in text)
-    return " ".join(text.split())
-
-
 def answer_metrics(prediction: str, gold: str) -> dict[str, float]:
     pred = normalize_answer(prediction)
     truth = normalize_answer(gold)
