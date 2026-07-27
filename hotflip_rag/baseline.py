@@ -66,6 +66,71 @@ def repair_broken_optional_torchvision() -> bool:
     return True
 
 
+def repair_broken_bitsandbytes() -> bool:
+    """Pin a CUDA 12-compatible bitsandbytes wheel when Colab installs CUDA 13."""
+    probe_code = (
+        "import bitsandbytes as bnb; "
+        "from bitsandbytes.cextension import lib; "
+        "print(bnb.__version__, type(lib).__name__, "
+        "getattr(lib, 'compiled_with_cuda', None))"
+    )
+    probe = subprocess.run(
+        [sys.executable, "-c", probe_code],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    output = probe.stdout or ""
+    broken = probe.returncode != 0 or any(
+        marker in output
+        for marker in (
+            "libnvJitLink.so.13",
+            "CUDA SETUP ERROR",
+            "bitsandbytes library load error",
+            "ErrorHandlerMockBNBNativeLibrary",
+        )
+    )
+    if not broken:
+        print(f"[preflight] bitsandbytes probe OK: {output.strip()}", flush=True)
+        return False
+    print(
+        "[preflight] Incompatible bitsandbytes/CUDA wheel detected. "
+        "Installing bitsandbytes==0.47.0 for the Colab CUDA 12 runtime.",
+        flush=True,
+    )
+    if output:
+        print(output[-1200:], flush=True)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "--no-deps",
+            "bitsandbytes==0.47.0",
+        ],
+        check=True,
+    )
+    importlib.invalidate_caches()
+    verification = subprocess.run(
+        [sys.executable, "-c", probe_code],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if verification.returncode != 0 or "libnvJitLink.so.13" in verification.stdout:
+        raise RuntimeError(
+            "bitsandbytes remains incompatible after repair:\n"
+            + verification.stdout[-2000:]
+        )
+    print(
+        f"[preflight] bitsandbytes repaired: {verification.stdout.strip()}",
+        flush=True,
+    )
+    return True
+
+
 def hotpot_passages(item: dict[str, Any]) -> list[dict[str, str]]:
     """Keep every HotpotQA document separate so Contriever genuinely ranks all 10."""
     supporting_titles = set(item["supporting_facts"]["title"])
@@ -83,6 +148,8 @@ def hotpot_passages(item: dict[str, Any]) -> list[dict[str, str]]:
 
 def load_models(args):
     repair_broken_optional_torchvision()
+    if args.load_in_4bit:
+        repair_broken_bitsandbytes()
     from transformers import (
         AutoModel,
         AutoModelForCausalLM,

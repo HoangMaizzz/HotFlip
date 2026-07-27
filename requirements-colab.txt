@@ -1,5 +1,5 @@
 accelerate>=1.2,<2
-bitsandbytes>=0.45,<0.50
+bitsandbytes==0.47.0
 datasets>=3.2,<5
 numpy>=1.26
 pandas>=2.0

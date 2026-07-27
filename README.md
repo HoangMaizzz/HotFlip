@@ -103,6 +103,10 @@ Trên Colab, pipeline tự kiểm tra lỗi không tương thích giữa torch v
 được gỡ vì Contriever và Qwen trong dự án này chỉ xử lý text và không cần thư
 viện vision tùy chọn này.
 
+`bitsandbytes` được khóa ở `0.47.0`, phiên bản có CUDA 12.8/12.9 builds phù hợp
+với runtime Colab hiện dùng. Pipeline cũng chạy preflight; nếu phát hiện wheel
+CUDA 13 đòi `libnvJitLink.so.13`, nó tự cài lại đúng bản trước khi nạp Qwen 4-bit.
+
 Untargeted, greedy, thay tối đa 3 token:
 
 ```powershell
