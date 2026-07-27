@@ -98,6 +98,11 @@ Cài thư viện:
 python -m pip install -r requirements.txt
 ```
 
+Trên Colab, pipeline tự kiểm tra lỗi không tương thích giữa torch và torchvision
+(`torchvision::nms does not exist`). Nếu wheel torchvision cài sẵn bị lỗi, nó
+được gỡ vì Contriever và Qwen trong dự án này chỉ xử lý text và không cần thư
+viện vision tùy chọn này.
+
 Untargeted, greedy, thay tối đa 3 token:
 
 ```powershell

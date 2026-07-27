@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib.util
 import json
 import random
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,51 @@ from .pipeline import (
     environment_metadata,
     set_seed,
 )
+
+
+def repair_broken_optional_torchvision() -> bool:
+    """Remove a broken optional torchvision install before importing Transformers.
+
+    Colab occasionally ships torch and torchvision wheels with incompatible
+    operators. Text-only BERT/Qwen models do not need torchvision, but
+    Transformers detects the installed package and imports its image utilities,
+    which can fail with ``operator torchvision::nms does not exist``.
+    """
+    if importlib.util.find_spec("torchvision") is None:
+        return False
+    probe = subprocess.run(
+        [sys.executable, "-c", "import torchvision"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if probe.returncode == 0:
+        return False
+    output = probe.stdout or ""
+    known_mismatch = (
+        "torchvision::nms does not exist" in output
+        or "Could not load library" in output
+        or "Couldn't load custom C++ ops" in output
+    )
+    if not known_mismatch:
+        print(
+            "[preflight] torchvision import failed. It is optional for this "
+            "text-only pipeline, so it will be removed.\n"
+            f"{output[-1200:]}",
+            flush=True,
+        )
+    else:
+        print(
+            "[preflight] Detected incompatible torch/torchvision wheels. "
+            "Removing optional torchvision before loading text models.",
+            flush=True,
+        )
+    subprocess.run(
+        [sys.executable, "-m", "pip", "uninstall", "-y", "torchvision"],
+        check=True,
+    )
+    importlib.invalidate_caches()
+    return True
 
 
 def hotpot_passages(item: dict[str, Any]) -> list[dict[str, str]]:
@@ -34,6 +82,7 @@ def hotpot_passages(item: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def load_models(args):
+    repair_broken_optional_torchvision()
     from transformers import (
         AutoModel,
         AutoModelForCausalLM,
