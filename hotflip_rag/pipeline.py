@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import difflib
 import json
+import math
 import os
 import platform
 import random
@@ -119,6 +120,45 @@ class QAGenerator:
             output[0, inputs.input_ids.shape[1] :], skip_special_tokens=True
         )
         return answer.strip().splitlines()[0].replace("Short Answer:", "").strip()
+
+    @torch.no_grad()
+    def gold_answer_probability(
+        self, question: str, context: str, gold_answer: str
+    ) -> dict[str, float]:
+        """Teacher-forced probability of the gold answer for a decoder-only LM.
+
+        ``sequence_probability`` is the product of answer-token probabilities
+        and can be extremely small. ``mean_token_probability`` is exp(-mean NLL)
+        and is the more readable confidence-like value.
+        """
+        if getattr(self.model.config, "is_encoder_decoder", False):
+            raise NotImplementedError("The current baseline uses a decoder-only Qwen model")
+        prompt = self.build_prompt(question, context)
+        prompt_ids = self.tokenizer(
+            prompt, add_special_tokens=True, return_tensors="pt"
+        ).input_ids[0]
+        answer_ids = self.tokenizer(
+            " " + gold_answer, add_special_tokens=False, return_tensors="pt"
+        ).input_ids[0]
+        available_prompt = self.max_input_tokens - len(answer_ids)
+        if available_prompt < 1:
+            raise ValueError("Gold answer alone exceeds the configured model input length")
+        prompt_ids = prompt_ids[-available_prompt:]
+        input_ids = torch.cat([prompt_ids, answer_ids]).unsqueeze(0).to(self.device)
+        labels = input_ids.clone()
+        labels[:, : len(prompt_ids)] = -100
+        output = self.model(input_ids=input_ids, labels=labels)
+        mean_nll = float(output.loss)
+        token_count = int(len(answer_ids))
+        log_probability = -mean_nll * token_count
+        sequence_probability = math.exp(log_probability) if log_probability > -745 else 0.0
+        return {
+            "mean_nll": mean_nll,
+            "answer_token_count": token_count,
+            "log_probability": log_probability,
+            "sequence_probability": sequence_probability,
+            "mean_token_probability": math.exp(-mean_nll),
+        }
 
 
 def context_diff(original: str, attacked: str) -> str:
