@@ -103,7 +103,10 @@ def print_example(result: dict[str, Any], current: int, total: int) -> None:
         else "SAI" if judge["correct"] is False
         else "KHÔNG HỢP LỆ"
     )
-    print(f"LLM JUDGE     : {judge_label} | raw={judge['raw']!r}")
+    print(
+        f"HYBRID JUDGE  : {judge_label} | method={judge['method']} "
+        f"| raw={judge['raw']!r}"
+    )
     probability = result["gold_answer_probability"]
     print(
         "XÁC SUẤT GOLD : "
@@ -257,6 +260,7 @@ def run_baseline(args) -> dict[str, Any]:
             / evaluated if evaluated else 0.0
         ),
     }
+    aggregate["hybrid_judge_accuracy"] = aggregate["llm_judge_accuracy"]
 
     with (output_dir / "baseline_results.jsonl").open("w", encoding="utf-8") as handle:
         for result in results:
@@ -272,7 +276,7 @@ def run_baseline(args) -> dict[str, Any]:
     csv_columns = [
         "id", "question", "gold_answer", "llm_answer", "retrieved_context",
         "retrieved_any_gold", "retrieved_all_gold", "em", "f1",
-        "llm_judge_correct", "llm_judge_raw",
+        "llm_judge_correct", "llm_judge_method", "llm_judge_raw",
         "gold_sequence_probability", "gold_mean_token_probability", "gold_mean_nll",
     ]
     with (output_dir / "baseline_results.csv").open(
@@ -293,6 +297,7 @@ def run_baseline(args) -> dict[str, Any]:
                     "em": result["metrics"]["em"],
                     "f1": result["metrics"]["f1"],
                     "llm_judge_correct": result["llm_judge"]["correct"],
+                    "llm_judge_method": result["llm_judge"]["method"],
                     "llm_judge_raw": result["llm_judge"]["raw"],
                     "gold_sequence_probability": result["gold_answer_probability"]["sequence_probability"],
                     "gold_mean_token_probability": result["gold_answer_probability"]["mean_token_probability"],
@@ -307,8 +312,8 @@ def run_baseline(args) -> dict[str, Any]:
     print(f"Retriever lấy đủ Gold documents  : {aggregate['retriever_all_gold_recall'] * 100:.2f}%")
     print(f"LLM Exact Match Accuracy          : {aggregate['llm_exact_match_accuracy'] * 100:.2f}%")
     print(f"LLM Average F1                    : {aggregate['llm_average_f1'] * 100:.2f}%")
-    print(f"LLM-as-Judge Accuracy             : {aggregate['llm_judge_accuracy'] * 100:.2f}%")
-    print(f"LLM-as-Judge valid judgments      : {aggregate['llm_judge_valid_examples']}/{evaluated}")
+    print(f"Hybrid Judge Accuracy             : {aggregate['hybrid_judge_accuracy'] * 100:.2f}%")
+    print(f"Hybrid Judge valid judgments      : {aggregate['llm_judge_valid_examples']}/{evaluated}")
     print(
         "Gold mean-token probability      : "
         f"{aggregate['average_gold_mean_token_probability'] * 100:.2f}%"

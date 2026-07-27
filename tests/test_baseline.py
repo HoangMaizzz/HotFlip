@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from hotflip_rag.baseline import hotpot_passages
+from hotflip_rag.metrics import canonical_semantic_answer
 from hotflip_rag.pipeline import QAGenerator
 
 
@@ -18,6 +19,11 @@ class BaselineTests(unittest.TestCase):
         self.assertIn("Return exactly one token: YES or NO", prompt)
         self.assertIn("Reference answer: John Smith", prompt)
         self.assertIn("Predicted answer: Smith", prompt)
+
+    def test_equivalent_year_ranges_have_same_canonical_form(self):
+        variants = ["1969 until 1974", "1969-1974", "from 1969 through 1974"]
+        normalized = {canonical_semantic_answer(value) for value in variants}
+        self.assertEqual(normalized, {"1969 to 1974"})
 
     def test_hotpot_passages_keep_documents_separate_and_hide_no_candidates(self):
         item = {
