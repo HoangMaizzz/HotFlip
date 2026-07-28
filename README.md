@@ -73,11 +73,14 @@ Tất cả chiến lược tìm kiếm đều tối đa hóa một objective.
 - Untargeted:
 
   ```text
-  J = -cos(Contriever(question), Contriever(gold_context))
+  J = cos(question, context)
+      - β cos(gold_answer, context)
   ```
 
-  Tối đa hóa `J` làm Gold Context rời xa câu hỏi và có khả năng mất vị trí
-  retrieval.
+  Thành phần đầu giữ document gần câu hỏi; thành phần sau đẩy biểu diễn document
+  ra xa gold answer. Một untargeted attack chỉ thành công khi baseline đúng,
+  modified document vẫn nằm trong top-k và LLM judge xác nhận attacked answer
+  sai. `β` được đặt bằng `--untargeted-answer-weight`.
 
 - Targeted:
 

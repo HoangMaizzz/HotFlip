@@ -97,6 +97,7 @@ def make_attacker(
         disallow_punctuation_replacement=args.disallow_punctuation_replacement,
         disallow_numeric_replacement=args.disallow_numeric_replacement,
         target_weight=args.target_weight,
+        untargeted_answer_weight=args.untargeted_answer_weight,
         score_chunk_size=args.score_chunk_size,
         max_context_tokens=args.max_context_tokens,
     )
@@ -147,7 +148,7 @@ def aggregate_results(results: list[dict[str, Any]], modes: list[str]) -> dict[s
                 and result["attacks"][mode]["gold_judge"]["correct"] is not None
             ]
             successes_on_correct = sum(
-                result["attacks"][mode]["gold_judge"]["correct"] is False
+                result["attacks"][mode]["attack_success"] is True
                 for result in baseline_correct_eligible
             )
             successes_overall = successes_on_correct
@@ -273,10 +274,19 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
             dataset_index = id_to_index[example_id]
             item = dataset[dataset_index]
             documents = hotpot_passages(item)
-            selected_gold = select_gold_document(
-                item["question"], documents, retriever
-            )
             baseline_documents = reconstruct_baseline_documents(row, documents)
+            baseline_gold_ids = {
+                passage.get("document_id")
+                for passage in baseline_documents
+                if passage.get("source") == "gold"
+            }
+            selection_pool = [
+                document for document in documents
+                if document["document_id"] in baseline_gold_ids
+            ] or documents
+            selected_gold = select_gold_document(
+                item["question"], selection_pool, retriever
+            )
             baseline_correct = parse_optional_bool(row["llm_judge_correct"])
             target_answer = target_for_example(
                 targets, item, dataset_index
@@ -334,6 +344,7 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                     item["question"],
                     selected_gold["text"],
                     target_answer=target_answer if mode == "targeted" else None,
+                    avoid_answer=item["answer"] if mode == "untargeted" else None,
                 )
                 attacked_document = {
                     **selected_gold,
@@ -358,6 +369,10 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                 )
                 target_judge = None
                 baseline_target_judge = None
+                modified_retrieved = any(
+                    passage["document_id"] == selected_gold["document_id"]
+                    for passage in retrieved
+                )
                 if mode == "targeted":
                     target_judge = generator.judge_answer(
                         item["question"], target_answer, answer
@@ -373,11 +388,8 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                     success = (
                         baseline_correct is True
                         and gold_judge["correct"] is False
+                        and modified_retrieved
                     )
-                modified_retrieved = any(
-                    passage["document_id"] == selected_gold["document_id"]
-                    for passage in retrieved
-                )
                 mode_result = {
                     "answer": answer,
                     "gold_judge": gold_judge,
@@ -536,6 +548,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-answer")
     parser.add_argument("--target-answer-file")
     parser.add_argument("--target-weight", type=float, default=1.0)
+    parser.add_argument("--untargeted-answer-weight", type=float, default=1.0)
     parser.add_argument("--search-strategy", choices=["greedy", "beam"], default="greedy")
     parser.add_argument("--max-token-changes", type=int, default=3)
     parser.add_argument("--beam-width", type=int, default=3)

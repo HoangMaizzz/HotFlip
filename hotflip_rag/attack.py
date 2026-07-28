@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-answer")
     parser.add_argument("--target-answer-file")
     parser.add_argument("--target-weight", type=float, default=1.0)
+    parser.add_argument("--untargeted-answer-weight", type=float, default=1.0)
     parser.add_argument("--search-strategy", choices=["greedy", "beam"], default="greedy")
     parser.add_argument("--max-token-changes", type=int, default=3)
     parser.add_argument("--beam-width", type=int, default=3)

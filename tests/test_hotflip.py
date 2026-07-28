@@ -133,6 +133,17 @@ class HotFlipTests(unittest.TestCase):
         result = attacker.attack("alpha", "alpha bravo")
         self.assertGreater(result.objective_after, result.objective_before)
         self.assertLess(result.query_similarity_after, result.query_similarity_before)
+
+    def test_retrieval_preserving_untargeted_uses_gold_answer_embedding(self):
+        attacker = self.attacker(
+            attack_mode="untargeted", untargeted_answer_weight=2.0
+        )
+        result = attacker.attack(
+            "alpha", "alpha bravo", avoid_answer="delta"
+        )
+        self.assertIsNotNone(result.target_similarity_before)
+        self.assertIsNotNone(result.target_similarity_after)
+        self.assertGreaterEqual(result.objective_after, result.objective_before)
         self.assertLessEqual(len({change.context_position for change in result.changes}), 1)
 
     def test_targeted_moves_context_toward_target(self):

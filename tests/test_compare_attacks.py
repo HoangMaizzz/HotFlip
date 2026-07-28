@@ -30,6 +30,7 @@ class CompareAttackTests(unittest.TestCase):
                 "attacks": {
                     "untargeted": {
                         "gold_judge": {"correct": False},
+                        "attack_success": True,
                         "modified_document_retrieved": True,
                     },
                     "targeted": {
@@ -45,6 +46,7 @@ class CompareAttackTests(unittest.TestCase):
                 "attacks": {
                     "untargeted": {
                         "gold_judge": {"correct": False},
+                        "attack_success": False,
                         "modified_document_retrieved": False,
                     },
                     "targeted": {
@@ -78,6 +80,20 @@ class CompareAttackTests(unittest.TestCase):
         self.assertIs(parse_optional_bool("True"), True)
         self.assertIs(parse_optional_bool("False"), False)
         self.assertIsNone(parse_optional_bool(""))
+
+    def test_untargeted_failure_when_modified_document_is_not_retrieved(self):
+        results = [{
+            "baseline": {"correct": True},
+            "attacks": {
+                "untargeted": {
+                    "gold_judge": {"correct": False},
+                    "attack_success": False,
+                    "modified_document_retrieved": False,
+                }
+            },
+        }]
+        aggregate = aggregate_results(results, ["untargeted"])
+        self.assertEqual(aggregate["untargeted"]["asr"], 0.0)
 
 
 if __name__ == "__main__":

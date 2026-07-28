@@ -33,6 +33,7 @@ class HotFlipConfig:
     disallow_numeric_replacement: bool = False
     allow_revisit_position: bool = False
     target_weight: float = 1.0
+    untargeted_answer_weight: float = 1.0
     score_chunk_size: int = 2048
     max_context_tokens: int = 512
 
@@ -45,6 +46,8 @@ class HotFlipConfig:
             raise ValueError("Attack budget must be non-negative and hotflip_top_k positive")
         if self.attack_mode == "targeted" and self.target_weight <= 0:
             raise ValueError("target_weight must be positive")
+        if self.untargeted_answer_weight <= 0:
+            raise ValueError("untargeted_answer_weight must be positive")
 
 
 def mean_pool(last_hidden_state: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
@@ -108,8 +111,9 @@ class ContrieverHotFlipAttacker:
     """HotFlip over Gold Context tokens using the Contriever retrieval objective.
 
     Sign convention: every search path *maximizes* ``objective``.
-    Untargeted objective is ``-cos(query, context)``, so maximizing it pushes the
-    Gold Context away from the query. Targeted objective is
+    When a gold-answer embedding is supplied, the retrieval-preserving
+    untargeted objective is ``cos(query, context) -
+    untargeted_answer_weight*cos(gold_answer, context)``. Targeted objective is
     ``cos(query, context) + target_weight*cos(target, context)``. It keeps the
     poisoned Gold Context retrievable while moving its representation toward the
     attacker-selected target answer.
@@ -172,7 +176,17 @@ class ContrieverHotFlipAttacker:
         query_similarity = F.cosine_similarity(context_embedding, query_embedding).mean()
         target_similarity = None
         if self.config.attack_mode == "untargeted":
-            objective = -query_similarity
+            if target_embedding is None:
+                # Backward-compatible representation-only mode.
+                objective = -query_similarity
+            else:
+                target_similarity = F.cosine_similarity(
+                    context_embedding, target_embedding
+                ).mean()
+                objective = (
+                    query_similarity
+                    - self.config.untargeted_answer_weight * target_similarity
+                )
         else:
             if target_embedding is None:
                 raise ValueError("target_answer is required for targeted attack")
@@ -304,7 +318,11 @@ class ContrieverHotFlipAttacker:
         return children
 
     def attack(
-        self, question: str, gold_context: str, target_answer: str | None = None
+        self,
+        question: str,
+        gold_context: str,
+        target_answer: str | None = None,
+        avoid_answer: str | None = None,
     ) -> AttackResult:
         self.forward_passes = self.backward_passes = 0
         query_embedding = self.encode_text(question).detach()
@@ -313,6 +331,8 @@ class ContrieverHotFlipAttacker:
             if not target_answer:
                 raise ValueError("target_answer is required in targeted mode")
             target_embedding = self.encode_text(target_answer).detach()
+        elif avoid_answer:
+            target_embedding = self.encode_text(avoid_answer).detach()
         input_ids, attention_mask = self.tokenize_context(gold_context)
         original_ids = input_ids.clone()
         modifiable_mask = self.build_modifiable_mask(input_ids, attention_mask)

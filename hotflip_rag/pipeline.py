@@ -537,6 +537,7 @@ def run_pipeline(args) -> dict[str, Any]:
         disallow_punctuation_replacement=args.disallow_punctuation_replacement,
         disallow_numeric_replacement=args.disallow_numeric_replacement,
         target_weight=args.target_weight,
+        untargeted_answer_weight=args.untargeted_answer_weight,
         score_chunk_size=args.score_chunk_size,
         max_context_tokens=args.max_context_tokens,
     )
@@ -572,7 +573,12 @@ def run_pipeline(args) -> dict[str, Any]:
                 continue
 
             attack_result = attacker.attack(
-                item["question"], selected_gold["text"], target_answer=target_answer
+                item["question"],
+                selected_gold["text"],
+                target_answer=target_answer,
+                avoid_answer=(
+                    item["answer"] if args.attack_mode == "untargeted" else None
+                ),
             )
             attacked_gold = {
                 **selected_gold,
@@ -597,13 +603,6 @@ def run_pipeline(args) -> dict[str, Any]:
                 if target_answer
                 else None
             )
-            if args.attack_mode == "untargeted":
-                success = (
-                    clean_judge["correct"] is True
-                    and attacked_judge["correct"] is False
-                )
-            else:
-                success = bool(target_judge and target_judge["correct"] is True)
             clean_gold_selected = any(
                 doc["document_id"] == selected_gold["document_id"]
                 for doc in clean_retrieved
@@ -612,11 +611,15 @@ def run_pipeline(args) -> dict[str, Any]:
                 doc["document_id"] == selected_gold["document_id"]
                 for doc in attacked_retrieved
             )
-            retrieval_attack_success = (
-                clean_gold_selected and not attacked_gold_selected
-                if args.attack_mode == "untargeted"
-                else attacked_gold_selected
-            )
+            if args.attack_mode == "untargeted":
+                success = (
+                    clean_judge["correct"] is True
+                    and attacked_judge["correct"] is False
+                    and attacked_gold_selected
+                )
+            else:
+                success = bool(target_judge and target_judge["correct"] is True)
+            retrieval_attack_success = attacked_gold_selected
             result = {
                 "id": str(item["id"]),
                 "dataset_index": dataset_index,
