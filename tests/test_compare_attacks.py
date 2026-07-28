@@ -59,9 +59,20 @@ class CompareAttackTests(unittest.TestCase):
         aggregate = aggregate_results(results, ["untargeted", "targeted"])
         self.assertEqual(aggregate["baseline_accuracy"], 0.5)
         self.assertEqual(aggregate["untargeted"]["asr"], 1.0)
+        self.assertEqual(aggregate["untargeted"]["asr_overall"], 0.5)
+        self.assertEqual(
+            aggregate["untargeted"]["asr_on_baseline_correct"], 1.0
+        )
         self.assertEqual(aggregate["untargeted"]["asr_eligible_examples"], 1)
         self.assertEqual(aggregate["targeted"]["asr"], 0.5)
+        self.assertEqual(aggregate["targeted"]["asr_overall"], 0.5)
+        self.assertEqual(
+            aggregate["targeted"]["asr_on_baseline_correct"], 1.0
+        )
         self.assertEqual(aggregate["targeted"]["asr_eligible_examples"], 2)
+        self.assertEqual(
+            aggregate["targeted"]["asr_on_baseline_correct_examples"], 1
+        )
 
     def test_optional_bool_parser(self):
         self.assertIs(parse_optional_bool("True"), True)
