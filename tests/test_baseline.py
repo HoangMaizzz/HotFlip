@@ -2,11 +2,29 @@ from __future__ import annotations
 
 import unittest
 
-from hotflip_rag.baseline import hotpot_passages
+from hotflip_rag.baseline import hotpot_passages, validate_target_token_ids
 from hotflip_rag.pipeline import QAGenerator
 
 
 class BaselineTests(unittest.TestCase):
+    def test_wrong_target_tokens_must_be_inside_candidate_vocabulary(self):
+        class RetrieverTokenizer:
+            unk_token_id = 100
+
+            def __call__(self, text, add_special_tokens=False):
+                return {"input_ids": [200, 29999] if text == "valid" else [30001]}
+
+            def convert_ids_to_tokens(self, token_ids):
+                return [str(token_id) for token_id in token_ids]
+
+        tokenizer = RetrieverTokenizer()
+        self.assertTrue(
+            validate_target_token_ids("valid", tokenizer, 30000)["valid"]
+        )
+        self.assertFalse(
+            validate_target_token_ids("invalid", tokenizer, 30000)["valid"]
+        )
+
     def test_prompt_requires_answer_only(self):
         prompt = QAGenerator.build_prompt("Where?", "Place: Here.")
         self.assertIn("Return exactly one shortest final-answer span", prompt)

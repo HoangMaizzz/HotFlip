@@ -24,7 +24,7 @@ class HotFlipConfig:
     hotflip_top_k: int = 20
     candidates_per_state: int = 20
     candidate_policy: str = "tokenizer_safe"
-    candidate_vocab_size: int | None = 5000
+    candidate_vocab_size: int | None = 30000
     exact_rerank: bool = True
     min_objective_improvement: float = 0.0
     preserve_token_class: bool = True

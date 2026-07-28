@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hotflip-top-k", type=int, default=20)
     parser.add_argument("--candidates-per-state", type=int, default=20)
     parser.add_argument("--candidate-policy", choices=["full_vocab", "tokenizer_safe"], default="tokenizer_safe")
-    parser.add_argument("--candidate-vocab-size", type=int, default=5000)
+    parser.add_argument("--candidate-vocab-size", type=int, default=30000)
     parser.add_argument("--score-chunk-size", type=int, default=2048)
     parser.add_argument("--min-objective-improvement", type=float, default=0.0)
     parser.add_argument("--exact-rerank", action=argparse.BooleanOptionalAction, default=True)

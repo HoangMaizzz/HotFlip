@@ -11,7 +11,12 @@ from pathlib import Path
 
 NUM_EXAMPLES = 5          # thử nhỏ trước; tăng sau khi cell chạy ổn
 TOP_K = 3
-MAX_TOKEN_CHANGES = 3
+MAX_TOKEN_CHANGES = 10
+BEAM_WIDTH = 5
+TARGET_WEIGHT = 3.0
+CANDIDATE_VOCAB_SIZE = 30000
+HOTFLIP_TOP_K = 20
+CANDIDATES_PER_STATE = 20
 
 PROJECT_DIR = Path("/content/HotFlip")
 BASELINE_IN_PROJECT = (
@@ -59,9 +64,14 @@ else:
         "hoặc chạy baseline trước trong cùng runtime."
     )
 
-target_file = PROJECT_DIR / "hotpotqa_answers_300.pkl"
+target_file = (
+    PROJECT_DIR / "outputs" / "colab_baseline" / "wrong_targets.json"
+)
 if not target_file.exists():
-    raise FileNotFoundError(f"Không tìm thấy target file: {target_file}")
+    raise FileNotFoundError(
+        f"Không tìm thấy target do Qwen sinh: {target_file}. "
+        "Hãy chạy baseline mới với --generate-wrong-targets trước."
+    )
 
 command = [
     sys.executable,
@@ -72,6 +82,12 @@ command = [
     "--num-examples", str(NUM_EXAMPLES),
     "--top-k", str(TOP_K),
     "--max-token-changes", str(MAX_TOKEN_CHANGES),
+    "--search-strategy", "beam",
+    "--beam-width", str(BEAM_WIDTH),
+    "--target-weight", str(TARGET_WEIGHT),
+    "--candidate-vocab-size", str(CANDIDATE_VOCAB_SIZE),
+    "--hotflip-top-k", str(HOTFLIP_TOP_K),
+    "--candidates-per-state", str(CANDIDATES_PER_STATE),
     "--generator-model", "Qwen/Qwen2.5-14B-Instruct",
     "--load-in-4bit",
     "--output-dir", str(OUTPUT_DIR),

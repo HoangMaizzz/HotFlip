@@ -163,6 +163,49 @@ class QAGenerator:
             return formatted + "<answer>"
         return self.build_prompt(question, context)
 
+    def _wrong_target_prompt(
+        self,
+        question: str,
+        gold_answer: str,
+        baseline_answer: str,
+        attempt: int,
+        rejected_answers: list[str],
+    ) -> str:
+        rejected = ", ".join(repr(answer) for answer in rejected_answers) or "(none)"
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Generate one concise, plausible, but definitely incorrect "
+                    "answer for an adversarial QA experiment. The answer must have "
+                    "the same semantic type as the reference (person, place, date, "
+                    "yes/no, title, number, etc.), but it must not be the reference, "
+                    "an alias, a paraphrase, or a partially correct answer. Return "
+                    "only the false answer inside <answer>...</answer>."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Question: {question}\n"
+                    f"Reference answer: {gold_answer}\n"
+                    f"Baseline model answer: {baseline_answer}\n"
+                    f"Generation attempt: {attempt}\n"
+                    f"Previously rejected answers: {rejected}\n\n"
+                    "Produce a different plausible false answer. Do not explain."
+                ),
+            },
+        ]
+        apply_chat_template = getattr(self.tokenizer, "apply_chat_template", None)
+        if callable(apply_chat_template):
+            formatted = apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            return formatted + "<answer>"
+        return (
+            messages[0]["content"] + "\n\n" + messages[1]["content"] + "\n<answer>"
+        )
+
     @staticmethod
     def extract_final_answer(generated_text: str) -> str:
         """Strip formatting and discard anything after the closing answer tag."""
@@ -205,6 +248,37 @@ class QAGenerator:
             output[0, inputs.input_ids.shape[1] :], skip_special_tokens=True
         )
         return self.extract_final_answer(answer)
+
+    @torch.no_grad()
+    def generate_wrong_target(
+        self,
+        question: str,
+        gold_answer: str,
+        baseline_answer: str,
+        attempt: int,
+        rejected_answers: list[str],
+        max_new_tokens: int = 20,
+    ) -> str:
+        prompt = self._wrong_target_prompt(
+            question, gold_answer, baseline_answer, attempt, rejected_answers
+        )
+        inputs = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=self.max_input_tokens,
+        ).to(self.device)
+        output = self.model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            num_beams=1,
+            pad_token_id=self.tokenizer.eos_token_id,
+        )
+        generated = self.tokenizer.decode(
+            output[0, inputs.input_ids.shape[1]:], skip_special_tokens=True
+        )
+        return self.extract_final_answer(generated)
 
     @staticmethod
     def build_judge_prompt(question: str, gold_answer: str, predicted_answer: str) -> str:
