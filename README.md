@@ -33,13 +33,13 @@ python -m hotflip_rag.baseline `
 ```
 
 Mỗi mẫu in câu hỏi, đáp án đúng, đáp án LLM, từng context Contriever lấy,
-cosine score, EM/F1, phán quyết của hybrid judge, xác suất cả chuỗi đáp án
-chuẩn và geometric-mean token probability. Hybrid judge chỉ tự chấp nhận
+cosine score, phán quyết của LLM judge, xác suất cả chuỗi đáp án chuẩn và
+geometric-mean token probability. Judge chỉ tự chấp nhận
 normalized Exact Match. Mọi trường hợp không exact—kể cả cách viết khoảng năm,
 alias hoặc đáp án nằm trong lời giải thích—đều được Qwen 14B đọc toàn bộ và
 chấm YES/NO. Prompt judge yêu cầu trả NO nếu phần bổ sung tạo ra entity, con số,
-mốc thời gian hoặc mệnh đề mâu thuẫn. Báo cáo cuối in retrieval recall, Hybrid
-Judge Accuracy, Exact Match Accuracy và Average F1. Kết quả cũng được lưu thành
+mốc thời gian hoặc mệnh đề mâu thuẫn. Báo cáo cuối dùng LLM-Judge Accuracy làm
+chỉ số đúng/sai; EM/F1 không được báo cáo. Kết quả cũng được lưu thành
 CSV, JSONL và aggregate JSON.
 
 Khác với yêu cầu “fixed retrieved context” trong bản mô tả đính kèm, pipeline

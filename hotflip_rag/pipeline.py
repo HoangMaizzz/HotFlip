@@ -18,7 +18,7 @@ import torch
 import torch.nn.functional as F
 
 from .hotflip import ContrieverHotFlipAttacker, HotFlipConfig, mean_pool
-from .metrics import answer_metrics, normalize_answer
+from .metrics import normalize_answer
 
 
 def set_seed(seed: int) -> None:
@@ -486,7 +486,6 @@ def run_pipeline(args) -> dict[str, Any]:
             clean_retrieved = retriever.retrieve(item["question"], clean_pool, args.top_k)
             clean_context = "\n\n".join(doc["text"] for doc in clean_retrieved)
             clean_answer = generator.generate(item["question"], clean_context)
-            clean_metrics = answer_metrics(clean_answer, item["answer"])
             clean_judge = generator.judge_answer(
                 item["question"], item["answer"], clean_answer
             )
@@ -516,7 +515,6 @@ def run_pipeline(args) -> dict[str, Any]:
             attacked_retrieved = retriever.retrieve(item["question"], attacked_pool, args.top_k)
             attacked_context = "\n\n".join(doc["text"] for doc in attacked_retrieved)
             attacked_answer = generator.generate(item["question"], attacked_context)
-            attacked_metrics = answer_metrics(attacked_answer, item["answer"])
             attacked_judge = generator.judge_answer(
                 item["question"], item["answer"], attacked_answer
             )
@@ -563,8 +561,6 @@ def run_pipeline(args) -> dict[str, Any]:
                 "attacked_gold_context": attack_result.attacked_text,
                 "clean_generated_answer": clean_answer,
                 "attacked_generated_answer": attacked_answer,
-                "clean_metrics": clean_metrics,
-                "attacked_metrics": attacked_metrics,
                 "clean_judge": clean_judge,
                 "attacked_judge": attacked_judge,
                 "target_judge": target_judge,

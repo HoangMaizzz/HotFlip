@@ -12,7 +12,6 @@ from typing import Any
 
 import torch
 
-from .metrics import answer_metrics
 from .pipeline import (
     ContrieverRetriever,
     QAGenerator,
@@ -210,10 +209,6 @@ def print_example(result: dict[str, Any], current: int, total: int) -> None:
     print(f"CÂU HỎI       : {result['question']}")
     print(f"ĐÁP ÁN ĐÚNG   : {result['gold_answer']}")
     print(f"LLM TRẢ LỜI   : {result['llm_answer']}")
-    print(
-        f"ĐÁNH GIÁ      : EM={result['metrics']['em']:.0f} | "
-        f"F1={result['metrics']['f1']:.4f}"
-    )
     judge = result["llm_judge"]
     judge_label = (
         "ĐÚNG" if judge["correct"] is True
@@ -221,7 +216,7 @@ def print_example(result: dict[str, Any], current: int, total: int) -> None:
         else "KHÔNG HỢP LỆ"
     )
     print(
-        f"HYBRID JUDGE  : {judge_label} | method={judge['method']} "
+        f"LLM JUDGE     : {judge_label} | method={judge['method']} "
         f"| raw={judge['raw']!r}"
     )
     probability = result["gold_answer_probability"]
@@ -241,8 +236,8 @@ def print_example(result: dict[str, Any], current: int, total: int) -> None:
         )
         print(f"  {passage['text']}")
     print(
-        f"\nRUNNING ACCURACY: EM={result['running_em_accuracy'] * 100:.2f}% | "
-        f"F1={result['running_average_f1'] * 100:.2f}%"
+        f"\nRUNNING LLM-JUDGE ACCURACY: "
+        f"{result['running_llm_judge_accuracy'] * 100:.2f}%"
     )
 
 
@@ -295,7 +290,6 @@ def run_baseline(args) -> dict[str, Any]:
 
     results: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
-    em_sum = f1_sum = 0.0
     judge_correct_count = judge_valid_count = 0
     any_gold_count = all_gold_count = 0
 
@@ -308,7 +302,6 @@ def run_baseline(args) -> dict[str, Any]:
             llm_answer = generator.generate(
                 item["question"], context, args.max_new_tokens
             )
-            metrics = answer_metrics(llm_answer, item["answer"])
             llm_judge = generator.judge_answer(
                 item["question"], item["answer"], llm_answer
             )
@@ -319,14 +312,11 @@ def run_baseline(args) -> dict[str, Any]:
             retrieved_titles = {passage["title"] for passage in retrieved}
             any_gold = bool(retrieved_titles & supporting_titles)
             all_gold = supporting_titles.issubset(retrieved_titles)
-            em_sum += metrics["em"]
-            f1_sum += metrics["f1"]
             if llm_judge["correct"] is not None:
                 judge_valid_count += 1
                 judge_correct_count += int(llm_judge["correct"])
             any_gold_count += int(any_gold)
             all_gold_count += int(all_gold)
-            evaluated_so_far = len(results) + 1
             result = {
                 "id": str(item["id"]),
                 "dataset_index": dataset_index,
@@ -338,14 +328,14 @@ def run_baseline(args) -> dict[str, Any]:
                 "supporting_titles": sorted(supporting_titles),
                 "retrieved_any_gold": any_gold,
                 "retrieved_all_gold": all_gold,
-                "metrics": metrics,
                 "llm_judge": llm_judge,
                 "gold_answer_probability": probability,
-                "running_em_accuracy": 0.0,
-                "running_average_f1": 0.0,
+                "running_llm_judge_accuracy": 0.0,
             }
-            result["running_em_accuracy"] = em_sum / evaluated_so_far
-            result["running_average_f1"] = f1_sum / evaluated_so_far
+            result["running_llm_judge_accuracy"] = (
+                judge_correct_count / judge_valid_count
+                if judge_valid_count else 0.0
+            )
             results.append(result)
             print_example(result, number, len(selected))
         except Exception as error:
@@ -361,8 +351,6 @@ def run_baseline(args) -> dict[str, Any]:
         "failed_examples": len(failures),
         "retriever_any_gold_recall": any_gold_count / evaluated if evaluated else 0.0,
         "retriever_all_gold_recall": all_gold_count / evaluated if evaluated else 0.0,
-        "llm_exact_match_accuracy": em_sum / evaluated if evaluated else 0.0,
-        "llm_average_f1": f1_sum / evaluated if evaluated else 0.0,
         "llm_judge_valid_examples": judge_valid_count,
         "llm_judge_invalid_examples": evaluated - judge_valid_count,
         "llm_judge_accuracy": (
@@ -377,8 +365,6 @@ def run_baseline(args) -> dict[str, Any]:
             / evaluated if evaluated else 0.0
         ),
     }
-    aggregate["hybrid_judge_accuracy"] = aggregate["llm_judge_accuracy"]
-
     with (output_dir / "baseline_results.jsonl").open("w", encoding="utf-8") as handle:
         for result in results:
             handle.write(json.dumps(result, ensure_ascii=False) + "\n")
@@ -393,7 +379,7 @@ def run_baseline(args) -> dict[str, Any]:
     csv_columns = [
         "id", "dataset_index", "question", "gold_answer", "llm_answer",
         "retrieved_context", "retrieved_passages_json", "supporting_titles_json",
-        "retrieved_any_gold", "retrieved_all_gold", "em", "f1",
+        "retrieved_any_gold", "retrieved_all_gold",
         "llm_judge_correct", "llm_judge_method", "llm_judge_raw",
         "gold_sequence_probability", "gold_mean_token_probability", "gold_mean_nll",
     ]
@@ -419,8 +405,6 @@ def run_baseline(args) -> dict[str, Any]:
                     ),
                     "retrieved_any_gold": result["retrieved_any_gold"],
                     "retrieved_all_gold": result["retrieved_all_gold"],
-                    "em": result["metrics"]["em"],
-                    "f1": result["metrics"]["f1"],
                     "llm_judge_correct": result["llm_judge"]["correct"],
                     "llm_judge_method": result["llm_judge"]["method"],
                     "llm_judge_raw": result["llm_judge"]["raw"],
@@ -435,10 +419,8 @@ def run_baseline(args) -> dict[str, Any]:
     print(f"Số mẫu đánh giá                  : {evaluated}/{len(selected)}")
     print(f"Retriever lấy ≥1 Gold document   : {aggregate['retriever_any_gold_recall'] * 100:.2f}%")
     print(f"Retriever lấy đủ Gold documents  : {aggregate['retriever_all_gold_recall'] * 100:.2f}%")
-    print(f"LLM Exact Match Accuracy          : {aggregate['llm_exact_match_accuracy'] * 100:.2f}%")
-    print(f"LLM Average F1                    : {aggregate['llm_average_f1'] * 100:.2f}%")
-    print(f"Hybrid Judge Accuracy             : {aggregate['hybrid_judge_accuracy'] * 100:.2f}%")
-    print(f"Hybrid Judge valid judgments      : {aggregate['llm_judge_valid_examples']}/{evaluated}")
+    print(f"LLM-Judge Accuracy                : {aggregate['llm_judge_accuracy'] * 100:.2f}%")
+    print(f"LLM-Judge valid judgments         : {aggregate['llm_judge_valid_examples']}/{evaluated}")
     print(
         "Gold mean-token probability      : "
         f"{aggregate['average_gold_mean_token_probability'] * 100:.2f}%"
