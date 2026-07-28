@@ -11,6 +11,7 @@ from hotflip_rag.hotflip import (
     HotFlipConfig,
     mean_pool,
 )
+from hotflip_rag.types import TokenChange
 
 
 class TinyTokenizer:
@@ -113,6 +114,36 @@ class HotFlipTests(unittest.TestCase):
 
     def test_numeric_replacement_is_enabled_by_default(self):
         self.assertFalse(HotFlipConfig().disallow_numeric_replacement)
+
+    def test_render_preserves_unmodified_capitalization(self):
+        attacker = self.attacker()
+        change = TokenChange(
+            step=1,
+            context_position=1,
+            original_token_id=3,
+            replacement_token_id=6,
+            original_token="alpha",
+            replacement_token="delta",
+            approximate_score=1.0,
+            objective_before=0.0,
+            objective_after=1.0,
+        )
+        attacked_ids = torch.tensor([[1, 6, 4, 2]], dtype=torch.long)
+        rendered = attacker.render_attacked_text(
+            "Alpha Bravo",
+            attacked_ids,
+            (change,),
+            [(0, 0), (0, 5), (6, 11), (0, 0)],
+        )
+        self.assertEqual(rendered, "delta Bravo")
+
+    def test_render_with_no_changes_returns_original_exactly(self):
+        attacker = self.attacker()
+        attacked_ids = torch.tensor([[1, 3, 4, 2]], dtype=torch.long)
+        rendered = attacker.render_attacked_text(
+            "Alpha Bravo", attacked_ids, (), None
+        )
+        self.assertEqual(rendered, "Alpha Bravo")
 
     def test_hotflip_formula(self):
         weight = self.model.embeddings.weight.detach()

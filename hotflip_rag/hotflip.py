@@ -61,12 +61,24 @@ class CandidateFilter:
         self.config = config
         self._special_ids = set(getattr(tokenizer, "all_special_ids", []))
         self._cache: dict[int, tuple[str, str, bool]] = {}
+        get_vocab = getattr(tokenizer, "get_vocab", None)
+        vocabulary = get_vocab() if callable(get_vocab) else {}
+        self._uses_wordpiece = any(
+            str(token).startswith("##") for token in vocabulary
+        )
 
     def _properties(self, token_id: int) -> tuple[str, str, bool]:
         if token_id not in self._cache:
             raw = self.tokenizer.convert_ids_to_tokens(int(token_id))
             decoded = self.tokenizer.decode([int(token_id)], skip_special_tokens=False)
-            leading_space = bool(decoded[:1].isspace()) or str(raw).startswith(("Ġ", "▁"))
+            if self._uses_wordpiece:
+                # WordPiece marks continuation pieces with ##. Treat word-start
+                # and continuation pieces as different spacing classes.
+                leading_space = not str(raw).startswith("##")
+            else:
+                leading_space = bool(decoded[:1].isspace()) or str(raw).startswith(
+                    ("Ġ", "▁")
+                )
             self._cache[token_id] = (str(decoded), token_class(str(decoded)), leading_space)
         return self._cache[token_id]
 
@@ -153,6 +165,67 @@ class ContrieverHotFlipAttacker:
             max_length=self.config.max_context_tokens,
         )
         return batch["input_ids"].to(self.device), batch["attention_mask"].to(self.device)
+
+    def context_offsets(
+        self, text: str, expected_length: int
+    ) -> list[tuple[int, int]] | None:
+        """Return fast-tokenizer character offsets when the tokenizer supports them."""
+        try:
+            batch = self.tokenizer(
+                text,
+                return_tensors="pt",
+                truncation=True,
+                max_length=self.config.max_context_tokens,
+                return_offsets_mapping=True,
+            )
+        except (TypeError, ValueError, NotImplementedError):
+            return None
+        mapping = batch.get("offset_mapping")
+        if mapping is None:
+            return None
+        offsets = [
+            (int(start), int(end)) for start, end in mapping[0].tolist()
+        ]
+        return offsets if len(offsets) == expected_length else None
+
+    def render_attacked_text(
+        self,
+        original_text: str,
+        attacked_ids: torch.LongTensor,
+        changes: tuple[TokenChange, ...],
+        offsets: list[tuple[int, int]] | None,
+    ) -> str:
+        """Preserve original formatting and replace only actual HotFlip spans."""
+        if not changes:
+            return original_text
+        if offsets is None:
+            return self.tokenizer.decode(
+                attacked_ids[0], skip_special_tokens=True
+            )
+        replacements: list[tuple[int, int, str]] = []
+        for change in changes:
+            position = change.context_position
+            if position >= len(offsets):
+                continue
+            start, end = offsets[position]
+            if end <= start:
+                continue
+            replacement_id = int(attacked_ids[0, position])
+            raw = str(self.tokenizer.convert_ids_to_tokens(replacement_id))
+            replacement = raw
+            for prefix in ("##", "Ġ", "▁"):
+                if replacement.startswith(prefix):
+                    replacement = replacement[len(prefix):]
+                    break
+            if not replacement:
+                replacement = self.tokenizer.decode(
+                    [replacement_id], skip_special_tokens=True
+                ).strip()
+            replacements.append((start, end, replacement))
+        rendered = original_text
+        for start, end, replacement in sorted(replacements, reverse=True):
+            rendered = rendered[:start] + replacement + rendered[end:]
+        return rendered
 
     def build_modifiable_mask(
         self, input_ids: torch.LongTensor, attention_mask: torch.LongTensor
@@ -334,6 +407,7 @@ class ContrieverHotFlipAttacker:
         elif avoid_answer:
             target_embedding = self.encode_text(avoid_answer).detach()
         input_ids, attention_mask = self.tokenize_context(gold_context)
+        offsets = self.context_offsets(gold_context, input_ids.shape[1])
         original_ids = input_ids.clone()
         modifiable_mask = self.build_modifiable_mask(input_ids, attention_mask)
         initial_obj, initial_query_sim, initial_target_sim = self.exact_objective(
@@ -379,7 +453,9 @@ class ContrieverHotFlipAttacker:
         changed = original_ids.ne(best.input_ids)
         if torch.any(changed & ~modifiable_mask):
             raise AssertionError("HotFlip modified a token outside the Gold Context mask")
-        attacked_text = self.tokenizer.decode(best.input_ids[0], skip_special_tokens=True)
+        attacked_text = self.render_attacked_text(
+            gold_context, best.input_ids, best.changes, offsets
+        )
         return AttackResult(
             original_text=gold_context,
             attacked_text=attacked_text,
