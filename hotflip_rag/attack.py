@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--preserve-token-class", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--preserve-leading-space", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--disallow-punctuation-replacement", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--disallow-numeric-replacement", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--disallow-numeric-replacement", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--only-clean-correct", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--output-dir", default="outputs/hotflip_untargeted")
     parser.add_argument("--fail-fast", action="store_true")

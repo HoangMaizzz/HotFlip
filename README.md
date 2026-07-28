@@ -42,11 +42,11 @@ mốc thời gian hoặc mệnh đề mâu thuẫn. Báo cáo cuối dùng LLM-J
 chỉ số đúng/sai; EM/F1 không được báo cáo. Kết quả cũng được lưu thành
 CSV, JSONL và aggregate JSON.
 
-Mặc định baseline còn yêu cầu Qwen sinh một đáp án sai ngắn cho từng câu. Target
-chỉ được giữ khi semantic judge xác nhận nó không tương đương gold answer và
-không trùng với baseline answer, đồng thời mọi Contriever token ID đều nhỏ hơn
-30.000. Các target hợp lệ được lưu ở
-`outputs/colab_baseline/wrong_targets.json` để targeted comparison dùng lại.
+Việc sinh đáp án sai được tách khỏi baseline. Sau khi baseline hoàn tất, chạy
+`python -m hotflip_rag.generate_targets` để Qwen sinh target. Target chỉ được giữ
+khi semantic judge xác nhận nó không tương đương gold answer và không trùng với
+baseline answer, đồng thời mọi Contriever token ID đều nhỏ hơn 30.000. Các target
+hợp lệ được lưu ở `outputs/generated_targets/wrong_targets.json`.
 
 Khác với yêu cầu “fixed retrieved context” trong bản mô tả đính kèm, pipeline
 này làm đúng thứ tự được yêu cầu sau cùng:
@@ -61,6 +61,10 @@ HotpotQA question
 
 Query và distractors không bị sửa. HotFlip hiện chỉ thực hiện **token
 replacement**, không chèn hoặc xóa token.
+
+Numeric positions được phép sửa mặc định. Khi `preserve_token_class=True`, một
+token năm/số chỉ được thay bằng một numeric token khác; dùng
+`--disallow-numeric-replacement` nếu muốn khóa toàn bộ số.
 
 ## Mục tiêu
 
@@ -131,7 +135,7 @@ Targeted dùng danh sách đáp án giả hiện có:
 python -m hotflip_rag.attack `
   --num-examples 100 `
   --attack-mode targeted `
-  --target-answer-file outputs/colab_baseline/wrong_targets.json `
+  --target-answer-file outputs/generated_targets/wrong_targets.json `
   --target-weight 1.0 `
   --search-strategy beam `
   --beam-width 3 `

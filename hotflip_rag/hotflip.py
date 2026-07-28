@@ -30,7 +30,7 @@ class HotFlipConfig:
     preserve_token_class: bool = True
     preserve_leading_space: bool = True
     disallow_punctuation_replacement: bool = True
-    disallow_numeric_replacement: bool = True
+    disallow_numeric_replacement: bool = False
     allow_revisit_position: bool = False
     target_weight: float = 1.0
     score_chunk_size: int = 2048

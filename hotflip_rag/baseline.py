@@ -146,28 +146,6 @@ def hotpot_passages(item: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
-def validate_target_token_ids(
-    target_answer: str, retriever_tokenizer, candidate_vocab_size: int
-) -> dict[str, Any]:
-    encoded = retriever_tokenizer(
-        target_answer, add_special_tokens=False
-    )["input_ids"]
-    token_ids = [int(token_id) for token_id in encoded]
-    unk_id = getattr(retriever_tokenizer, "unk_token_id", None)
-    invalid_ids = [
-        token_id for token_id in token_ids
-        if token_id >= candidate_vocab_size
-        or (unk_id is not None and token_id == int(unk_id))
-    ]
-    return {
-        "valid": bool(token_ids) and not invalid_ids,
-        "token_ids": token_ids,
-        "tokens": retriever_tokenizer.convert_ids_to_tokens(token_ids),
-        "invalid_token_ids": invalid_ids,
-        "candidate_vocab_size": candidate_vocab_size,
-    }
-
-
 def load_models(args):
     repair_broken_optional_torchvision()
     if args.load_in_4bit:
@@ -312,8 +290,6 @@ def run_baseline(args) -> dict[str, Any]:
 
     results: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
-    wrong_targets: dict[str, str] = {}
-    wrong_target_failures: list[dict[str, Any]] = []
     judge_correct_count = judge_valid_count = 0
     any_gold_count = all_gold_count = 0
 
@@ -329,52 +305,6 @@ def run_baseline(args) -> dict[str, Any]:
             llm_judge = generator.judge_answer(
                 item["question"], item["answer"], llm_answer
             )
-            wrong_target = None
-            wrong_target_metadata = None
-            if args.generate_wrong_targets:
-                rejected_answers: list[str] = []
-                for attempt in range(1, args.wrong_target_max_attempts + 1):
-                    candidate = generator.generate_wrong_target(
-                        item["question"],
-                        item["answer"],
-                        llm_answer,
-                        attempt,
-                        rejected_answers,
-                        args.wrong_target_max_new_tokens,
-                    )
-                    token_validation = validate_target_token_ids(
-                        candidate,
-                        retriever_tokenizer,
-                        args.target_candidate_vocab_size,
-                    )
-                    gold_judge = generator.judge_answer(
-                        item["question"], item["answer"], candidate
-                    )
-                    baseline_target_judge = generator.judge_answer(
-                        item["question"], candidate, llm_answer
-                    )
-                    if (
-                        candidate
-                        and token_validation["valid"]
-                        and gold_judge["correct"] is False
-                        and baseline_target_judge["correct"] is False
-                    ):
-                        wrong_target = candidate
-                        wrong_target_metadata = {
-                            "attempt": attempt,
-                            "retriever_tokens": token_validation,
-                            "gold_judge": gold_judge,
-                            "baseline_target_judge": baseline_target_judge,
-                        }
-                        wrong_targets[str(item["id"])] = candidate
-                        break
-                    rejected_answers.append(candidate)
-                if wrong_target is None:
-                    wrong_target_failures.append({
-                        "id": str(item["id"]),
-                        "dataset_index": dataset_index,
-                        "rejected_answers": rejected_answers,
-                    })
             probability = generator.gold_answer_probability(
                 item["question"], context, item["answer"]
             )
@@ -393,8 +323,6 @@ def run_baseline(args) -> dict[str, Any]:
                 "question": item["question"],
                 "gold_answer": item["answer"],
                 "llm_answer": llm_answer,
-                "wrong_target_answer": wrong_target,
-                "wrong_target_metadata": wrong_target_metadata,
                 "retrieved_context": context,
                 "retrieved_passages": retrieved,
                 "supporting_titles": sorted(supporting_titles),
@@ -428,9 +356,6 @@ def run_baseline(args) -> dict[str, Any]:
         "llm_judge_accuracy": (
             judge_correct_count / judge_valid_count if judge_valid_count else 0.0
         ),
-        "generated_wrong_targets": len(wrong_targets),
-        "wrong_target_generation_failures": len(wrong_target_failures),
-        "target_candidate_vocab_size": args.target_candidate_vocab_size,
         "average_gold_sequence_probability": (
             sum(r["gold_answer_probability"]["sequence_probability"] for r in results)
             / evaluated if evaluated else 0.0
@@ -447,19 +372,12 @@ def run_baseline(args) -> dict[str, Any]:
         json.dump(aggregate, handle, ensure_ascii=False, indent=2)
     with (output_dir / "baseline_failures.json").open("w", encoding="utf-8") as handle:
         json.dump(failures, handle, ensure_ascii=False, indent=2)
-    with (output_dir / "wrong_targets.json").open("w", encoding="utf-8") as handle:
-        json.dump(wrong_targets, handle, ensure_ascii=False, indent=2)
-    with (output_dir / "wrong_target_failures.json").open(
-        "w", encoding="utf-8"
-    ) as handle:
-        json.dump(wrong_target_failures, handle, ensure_ascii=False, indent=2)
     config = {**vars(args), "environment": environment_metadata()}
     with (output_dir / "baseline_config.json").open("w", encoding="utf-8") as handle:
         json.dump(config, handle, ensure_ascii=False, indent=2, default=str)
 
     csv_columns = [
         "id", "dataset_index", "question", "gold_answer", "llm_answer",
-        "wrong_target_answer", "wrong_target_token_ids_json",
         "retrieved_context", "retrieved_passages_json", "supporting_titles_json",
         "retrieved_any_gold", "retrieved_all_gold",
         "llm_judge_correct", "llm_judge_method", "llm_judge_raw",
@@ -478,13 +396,6 @@ def run_baseline(args) -> dict[str, Any]:
                     "question": result["question"],
                     "gold_answer": result["gold_answer"],
                     "llm_answer": result["llm_answer"],
-                    "wrong_target_answer": result["wrong_target_answer"],
-                    "wrong_target_token_ids_json": json.dumps(
-                        (
-                            result["wrong_target_metadata"]["retriever_tokens"]["token_ids"]
-                            if result["wrong_target_metadata"] else []
-                        )
-                    ),
                     "retrieved_context": result["retrieved_context"],
                     "retrieved_passages_json": json.dumps(
                         result["retrieved_passages"], ensure_ascii=False
@@ -510,7 +421,6 @@ def run_baseline(args) -> dict[str, Any]:
     print(f"Retriever lấy đủ Gold documents  : {aggregate['retriever_all_gold_recall'] * 100:.2f}%")
     print(f"LLM-Judge Accuracy                : {aggregate['llm_judge_accuracy'] * 100:.2f}%")
     print(f"LLM-Judge valid judgments         : {aggregate['llm_judge_valid_examples']}/{evaluated}")
-    print(f"Valid wrong targets generated     : {len(wrong_targets)}/{evaluated}")
     print(
         "Gold mean-token probability      : "
         f"{aggregate['average_gold_mean_token_probability'] * 100:.2f}%"
@@ -537,14 +447,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-context-tokens", type=int, default=512)
     parser.add_argument("--max-generator-input-tokens", type=int, default=3072)
     parser.add_argument("--max-new-tokens", type=int, default=20)
-    parser.add_argument(
-        "--generate-wrong-targets",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-    )
-    parser.add_argument("--wrong-target-max-attempts", type=int, default=5)
-    parser.add_argument("--wrong-target-max-new-tokens", type=int, default=20)
-    parser.add_argument("--target-candidate-vocab-size", type=int, default=30000)
     parser.add_argument("--output-dir", default="outputs/colab_baseline")
     parser.add_argument("--fail-fast", action="store_true")
     return parser

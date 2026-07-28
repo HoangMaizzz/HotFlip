@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from hotflip_rag.baseline import hotpot_passages, validate_target_token_ids
+from hotflip_rag.baseline import hotpot_passages
+from hotflip_rag.generate_targets import validate_target_token_ids
 from hotflip_rag.pipeline import QAGenerator
 
 

@@ -111,6 +111,9 @@ class HotFlipTests(unittest.TestCase):
             self.model, self.tokenizer, HotFlipConfig(**values), "cpu"
         )
 
+    def test_numeric_replacement_is_enabled_by_default(self):
+        self.assertFalse(HotFlipConfig().disallow_numeric_replacement)
+
     def test_hotflip_formula(self):
         weight = self.model.embeddings.weight.detach()
         grad = torch.tensor([0.25, -0.5, 1.0])

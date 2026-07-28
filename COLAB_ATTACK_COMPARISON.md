@@ -65,12 +65,12 @@ else:
     )
 
 target_file = (
-    PROJECT_DIR / "outputs" / "colab_baseline" / "wrong_targets.json"
+    PROJECT_DIR / "outputs" / "generated_targets" / "wrong_targets.json"
 )
 if not target_file.exists():
     raise FileNotFoundError(
         f"Không tìm thấy target do Qwen sinh: {target_file}. "
-        "Hãy chạy baseline mới với --generate-wrong-targets trước."
+        "Hãy chạy hotflip_rag.generate_targets trước."
     )
 
 command = [

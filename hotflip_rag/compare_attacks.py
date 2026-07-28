@@ -560,7 +560,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--disallow-numeric-replacement",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
     )
     parser.add_argument("--output-dir", default="outputs/attack_comparison")
     parser.add_argument("--fail-fast", action="store_true")
