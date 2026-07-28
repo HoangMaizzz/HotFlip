@@ -9,9 +9,21 @@ from hotflip_rag.pipeline import QAGenerator
 class BaselineTests(unittest.TestCase):
     def test_prompt_requires_answer_only(self):
         prompt = QAGenerator.build_prompt("Where?", "Place: Here.")
-        self.assertIn("Return only the final answer", prompt)
-        self.assertIn("no explanation", prompt)
-        self.assertTrue(prompt.endswith("Final answer:"))
+        self.assertIn("Return exactly one shortest final-answer span", prompt)
+        self.assertIn("Do not explain", prompt)
+        self.assertTrue(prompt.endswith("<answer>"))
+
+    def test_generated_explanation_after_closing_tag_is_discarded(self):
+        answer = QAGenerator.extract_final_answer(
+            "1969–1974</answer> This is supported by the context."
+        )
+        self.assertEqual(answer, "1969–1974")
+
+    def test_opening_and_closing_answer_tags_are_removed(self):
+        answer = QAGenerator.extract_final_answer(
+            "<answer>Richard Nixon</answer>\nExtra explanation"
+        )
+        self.assertEqual(answer, "Richard Nixon")
 
     def test_judge_prompt_requires_yes_or_no(self):
         prompt = QAGenerator.build_judge_prompt("Who?", "John Smith", "Smith")

@@ -116,19 +116,78 @@ class QAGenerator:
     @staticmethod
     def build_prompt(question: str, context: str) -> str:
         return (
-            "You are a question-answering system.\n"
-            "Use only the supplied context to answer the question.\n"
-            "Return only the final answer: no explanation, no reasoning, "
-            "no introductory phrase, and do not repeat the question.\n"
-            "The response must contain only the shortest answer text needed.\n\n"
+            "You are an extractive question-answering engine.\n"
+            "Use only the supplied context.\n"
+            "Return exactly one shortest final-answer span.\n"
+            "Do not explain, justify, reason, introduce the answer, repeat the "
+            "question, or add any fact beyond the answer itself.\n"
+            "A name, date, number, place, or yes/no must be returned by itself, "
+            "not inside a sentence.\n"
+            "Write the answer between <answer> and </answer>. Produce no text "
+            "before <answer> or after </answer>.\n\n"
             f"Context:\n{context}\n\n"
             f"Question: {question}\n"
-            "Final answer:"
+            "<answer>"
         )
+
+    def _generation_prompt(self, question: str, context: str) -> str:
+        """Use the instruction model's chat format and seed the answer tag."""
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an extractive question-answering engine. Your entire "
+                    "response must be exactly one shortest final-answer span. Never "
+                    "give an explanation, reasoning, an introductory phrase, a full "
+                    "sentence around the answer, or any additional fact. Output the "
+                    "answer only inside <answer>...</answer>."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Use only the supplied context.\n\n"
+                    f"Context:\n{context}\n\n"
+                    f"Question: {question}\n\n"
+                    "Return only the shortest answer. Examples of valid responses: "
+                    "<answer>yes</answer>, <answer>1969–1974</answer>, "
+                    "<answer>Richard Nixon</answer>."
+                ),
+            },
+        ]
+        apply_chat_template = getattr(self.tokenizer, "apply_chat_template", None)
+        if callable(apply_chat_template):
+            formatted = apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            return formatted + "<answer>"
+        return self.build_prompt(question, context)
+
+    @staticmethod
+    def extract_final_answer(generated_text: str) -> str:
+        """Strip formatting and discard anything after the closing answer tag."""
+        answer = generated_text.strip()
+        lowered = answer.lower()
+        if "<answer>" in lowered:
+            start = lowered.find("<answer>") + len("<answer>")
+            answer = answer[start:]
+            lowered = answer.lower()
+        if "</answer>" in lowered:
+            answer = answer[:lowered.find("</answer>")]
+        answer = next(
+            (line.strip() for line in answer.splitlines() if line.strip()),
+            "",
+        )
+        for prefix in (
+            "Final answer:", "Final Answer:", "Answer:", "Short Answer:"
+        ):
+            if answer.startswith(prefix):
+                answer = answer[len(prefix):].strip()
+        return answer.strip().strip("`").strip()
 
     @torch.no_grad()
     def generate(self, question: str, context: str, max_new_tokens: int = 20) -> str:
-        prompt = self.build_prompt(question, context)
+        prompt = self._generation_prompt(question, context)
         inputs = self.tokenizer(
             prompt,
             return_tensors="pt",
@@ -145,11 +204,7 @@ class QAGenerator:
         answer = self.tokenizer.decode(
             output[0, inputs.input_ids.shape[1] :], skip_special_tokens=True
         )
-        answer = answer.strip().splitlines()[0].strip()
-        for prefix in ("Final answer:", "Final Answer:", "Answer:", "Short Answer:"):
-            if answer.startswith(prefix):
-                answer = answer[len(prefix) :].strip()
-        return answer
+        return self.extract_final_answer(answer)
 
     @staticmethod
     def build_judge_prompt(question: str, gold_answer: str, predicted_answer: str) -> str:
@@ -243,12 +298,12 @@ class QAGenerator:
         """
         if getattr(self.model.config, "is_encoder_decoder", False):
             raise NotImplementedError("The current baseline uses a decoder-only Qwen model")
-        prompt = self.build_prompt(question, context)
+        prompt = self._generation_prompt(question, context)
         prompt_ids = self.tokenizer(
             prompt, add_special_tokens=True, return_tensors="pt"
         ).input_ids[0]
         answer_ids = self.tokenizer(
-            " " + gold_answer, add_special_tokens=False, return_tensors="pt"
+            gold_answer, add_special_tokens=False, return_tensors="pt"
         ).input_ids[0]
         available_prompt = self.max_input_tokens - len(answer_ids)
         if available_prompt < 1:
