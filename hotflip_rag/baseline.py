@@ -282,7 +282,7 @@ def run_baseline(args) -> dict[str, Any]:
     print("[4/4] Starting baseline evaluation.", flush=True)
 
     print("\n" + "=" * 100)
-    print("HOT POT QA — CONTRIEVER + QWEN 7B BASELINE")
+    print("HOT POT QA — CONTRIEVER + QWEN BASELINE")
     print(f"Dataset          : hotpotqa/hotpot_qa/distractor/{args.split}")
     print(f"Examples         : {len(selected)}")
     print(f"Retriever        : {args.retriever_model}")
@@ -441,14 +441,14 @@ def run_baseline(args) -> dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Baseline HotpotQA retrieval with Contriever and Qwen 7B"
+        description="Baseline HotpotQA retrieval with Contriever and Qwen"
     )
     parser.add_argument("--split", default="validation")
     parser.add_argument("--num-examples", type=int, default=100)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--shuffle", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--retriever-model", default="facebook/contriever")
-    parser.add_argument("--generator-model", default="Qwen/Qwen2.5-7B-Instruct")
+    parser.add_argument("--generator-model", default="Qwen/Qwen2.5-14B-Instruct")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--load-in-4bit", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--prefer-bfloat16", action=argparse.BooleanOptionalAction, default=False)

@@ -3,7 +3,7 @@
 Pipeline này được viết lại từ hai notebook trong thư mục và giữ nguyên:
 
 - retriever: `facebook/contriever`;
-- generator: `Qwen/Qwen2.5-7B-Instruct`;
+- generator: `Qwen/Qwen2.5-14B-Instruct`;
 - dữ liệu: `hotpot_qa`, cấu hình `distractor`, split `validation`.
 
 ## Chạy baseline trên Google Colab trước
@@ -17,7 +17,7 @@ Baseline chưa dùng HotFlip:
 question
   -> facebook/contriever xếp hạng 10 HotpotQA documents
   -> lấy top-3 passages
-  -> Qwen/Qwen2.5-7B-Instruct (4-bit trên Colab)
+  -> Qwen/Qwen2.5-14B-Instruct (4-bit trên Colab L4 24 GB)
   -> câu trả lời và báo cáo xác suất
 ```
 
@@ -34,14 +34,13 @@ python -m hotflip_rag.baseline `
 
 Mỗi mẫu in câu hỏi, đáp án đúng, đáp án LLM, từng context Contriever lấy,
 cosine score, EM/F1, phán quyết của hybrid judge, xác suất cả chuỗi đáp án
-chuẩn và geometric-mean token probability. Hybrid judge lần lượt kiểm tra
-normalized Exact Match, các biến thể định dạng chắc chắn tương đương và việc
-toàn bộ đáp án chuẩn có nằm trong câu trả lời dài hơn hay không. Chỉ các trường
-hợp còn mơ hồ mới được Qwen 7B chấm YES/NO. Vì vậy `from 1986 to 2013`,
-`1986-2013` và `1986 to 2013` được tính giống nhau; lời giải thích sau một đáp
-án đúng cũng được chấp nhận. Báo cáo cuối in retrieval recall, Hybrid Judge
-Accuracy, Exact Match Accuracy và Average F1. Kết quả cũng được lưu thành CSV,
-JSONL và aggregate JSON.
+chuẩn và geometric-mean token probability. Hybrid judge chỉ tự chấp nhận
+normalized Exact Match. Mọi trường hợp không exact—kể cả cách viết khoảng năm,
+alias hoặc đáp án nằm trong lời giải thích—đều được Qwen 14B đọc toàn bộ và
+chấm YES/NO. Prompt judge yêu cầu trả NO nếu phần bổ sung tạo ra entity, con số,
+mốc thời gian hoặc mệnh đề mâu thuẫn. Báo cáo cuối in retrieval recall, Hybrid
+Judge Accuracy, Exact Match Accuracy và Average F1. Kết quả cũng được lưu thành
+CSV, JSONL và aggregate JSON.
 
 Khác với yêu cầu “fixed retrieved context” trong bản mô tả đính kèm, pipeline
 này làm đúng thứ tự được yêu cầu sau cùng:
@@ -171,6 +170,6 @@ python -m unittest discover -s tests -v
   đây không phải thống kê tần suất corpus.
 - Chưa căn chỉnh riêng supporting-fact span ở cấp token; toàn bộ Gold Context
   tạo từ các tài liệu chứa supporting facts đều có thể bị sửa.
-- Chạy Qwen 7B và exact reranking cần GPU có VRAM phù hợp.
+- Chạy Qwen 14B 4-bit và exact reranking cần GPU có VRAM phù hợp.
 
 Đây là pipeline nghiên cứu robustness trong môi trường white-box có kiểm soát.

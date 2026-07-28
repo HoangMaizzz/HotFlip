@@ -15,7 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-examples", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--retriever-model", default="facebook/contriever")
-    parser.add_argument("--generator-model", default="Qwen/Qwen2.5-7B-Instruct")
+    parser.add_argument("--generator-model", default="Qwen/Qwen2.5-14B-Instruct")
     parser.add_argument("--generator-dtype", choices=["float32", "float16", "bfloat16"], default="float16")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--top-k", type=int, default=1)
