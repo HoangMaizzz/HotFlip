@@ -136,13 +136,14 @@ def hotpot_passages(item: dict[str, Any]) -> list[dict[str, str]]:
     supporting_titles = set(item["supporting_facts"]["title"])
     return [
         {
+            "document_id": f"{item.get('id', 'example')}:{index}",
             "title": title,
             "text": f"{title}: {' '.join(sentences)}",
             "source": "gold" if title in supporting_titles else "distractor",
         }
-        for title, sentences in zip(
+        for index, (title, sentences) in enumerate(zip(
             item["context"]["title"], item["context"]["sentences"]
-        )
+        ))
     ]
 
 
@@ -390,7 +391,8 @@ def run_baseline(args) -> dict[str, Any]:
         json.dump(config, handle, ensure_ascii=False, indent=2, default=str)
 
     csv_columns = [
-        "id", "question", "gold_answer", "llm_answer", "retrieved_context",
+        "id", "dataset_index", "question", "gold_answer", "llm_answer",
+        "retrieved_context", "retrieved_passages_json", "supporting_titles_json",
         "retrieved_any_gold", "retrieved_all_gold", "em", "f1",
         "llm_judge_correct", "llm_judge_method", "llm_judge_raw",
         "gold_sequence_probability", "gold_mean_token_probability", "gold_mean_nll",
@@ -404,10 +406,17 @@ def run_baseline(args) -> dict[str, Any]:
             writer.writerow(
                 {
                     "id": result["id"],
+                    "dataset_index": result["dataset_index"],
                     "question": result["question"],
                     "gold_answer": result["gold_answer"],
                     "llm_answer": result["llm_answer"],
                     "retrieved_context": result["retrieved_context"],
+                    "retrieved_passages_json": json.dumps(
+                        result["retrieved_passages"], ensure_ascii=False
+                    ),
+                    "supporting_titles_json": json.dumps(
+                        result["supporting_titles"], ensure_ascii=False
+                    ),
                     "retrieved_any_gold": result["retrieved_any_gold"],
                     "retrieved_all_gold": result["retrieved_all_gold"],
                     "em": result["metrics"]["em"],

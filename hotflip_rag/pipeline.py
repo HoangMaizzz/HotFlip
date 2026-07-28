@@ -29,18 +29,39 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def hotpot_contexts(item: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, str]]]:
+def hotpot_documents(item: dict[str, Any]) -> list[dict[str, str]]:
+    """Return the ten HotpotQA documents separately with stable document IDs."""
     titles = list(item["context"]["title"])
     sentence_groups = list(item["context"]["sentences"])
     supporting_titles = set(item["supporting_facts"]["title"])
-    documents = [
-        {"title": title, "text": f"{title}: {' '.join(sentences)}"}
-        for title, sentences in zip(titles, sentence_groups)
+    return [
+        {
+            "document_id": f"{item.get('id', 'example')}:{index}",
+            "title": title,
+            "text": f"{title}: {' '.join(sentences)}",
+            "source": "gold" if title in supporting_titles else "distractor",
+        }
+        for index, (title, sentences) in enumerate(zip(titles, sentence_groups))
     ]
-    gold_docs = [doc for doc in documents if doc["title"] in supporting_titles]
-    distractors = [doc for doc in documents if doc["title"] not in supporting_titles]
+
+
+def select_gold_document(
+    question: str,
+    documents: list[dict[str, str]],
+    retriever: "ContrieverRetriever",
+) -> dict[str, Any]:
+    """Select exactly one supporting document: the gold doc closest to the query."""
+    gold_docs = [doc for doc in documents if doc["source"] == "gold"]
     if not gold_docs:
-        raise ValueError(f"No supporting-fact document found for example {item.get('id')}")
+        raise ValueError("No supporting-fact document found")
+    return retriever.retrieve(question, gold_docs, top_k=1)[0]
+
+
+def hotpot_contexts(item: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, str]]]:
+    """Backward-compatible helper; new attack code should use ``hotpot_documents``."""
+    documents = hotpot_documents(item)
+    gold_docs = [doc for doc in documents if doc["source"] == "gold"]
+    distractors = [doc for doc in documents if doc["source"] == "distractor"]
     gold = {
         "title": " + ".join(doc["title"] for doc in gold_docs),
         "text": "\n\n".join(doc["text"] for doc in gold_docs),
@@ -403,15 +424,18 @@ def run_pipeline(args) -> dict[str, Any]:
         item = dataset[dataset_index]
         started = time.perf_counter()
         try:
-            gold, distractors = hotpot_contexts(item)
-            clean_pool = [{**gold, "source": "gold"}] + [
-                {**doc, "source": "distractor"} for doc in distractors
-            ]
+            clean_pool = hotpot_documents(item)
+            selected_gold = select_gold_document(
+                item["question"], clean_pool, retriever
+            )
             clean_retrieved = retriever.retrieve(item["question"], clean_pool, args.top_k)
             clean_context = "\n\n".join(doc["text"] for doc in clean_retrieved)
             clean_answer = generator.generate(item["question"], clean_context)
             clean_metrics = answer_metrics(clean_answer, item["answer"])
-            if args.only_clean_correct and clean_metrics["em"] == 0 and clean_metrics["f1"] < args.clean_f1_threshold:
+            clean_judge = generator.judge_answer(
+                item["question"], item["answer"], clean_answer
+            )
+            if args.only_clean_correct and clean_judge["correct"] is not True:
                 failures.append({"id": str(item["id"]), "reason": "clean_answer_incorrect"})
                 continue
             target_answer = target_for_example(targets, item, dataset_index)
@@ -420,38 +444,46 @@ def run_pipeline(args) -> dict[str, Any]:
                 continue
 
             attack_result = attacker.attack(
-                item["question"], gold["text"], target_answer=target_answer
+                item["question"], selected_gold["text"], target_answer=target_answer
             )
             attacked_gold = {
-                "title": gold["title"],
+                **selected_gold,
                 "text": attack_result.attacked_text,
                 "source": "attacked_gold",
             }
-            attacked_pool = [attacked_gold] + [
-                {**doc, "source": "distractor"} for doc in distractors
+            attacked_pool = [
+                attacked_gold
+                if doc["document_id"] == selected_gold["document_id"]
+                else doc
+                for doc in clean_pool
             ]
-            # This is the retrieval that determines the attacked RAG answer. It is
-            # deliberately called only after every Gold Context flip is complete.
+            # Retrieval happens only after the selected gold document has been flipped.
             attacked_retrieved = retriever.retrieve(item["question"], attacked_pool, args.top_k)
             attacked_context = "\n\n".join(doc["text"] for doc in attacked_retrieved)
             attacked_answer = generator.generate(item["question"], attacked_context)
             attacked_metrics = answer_metrics(attacked_answer, item["answer"])
-            target_metrics = (
-                answer_metrics(attacked_answer, target_answer) if target_answer else None
+            attacked_judge = generator.judge_answer(
+                item["question"], item["answer"], attacked_answer
+            )
+            target_judge = (
+                generator.judge_answer(item["question"], target_answer, attacked_answer)
+                if target_answer
+                else None
             )
             if args.attack_mode == "untargeted":
-                success = attacked_metrics["em"] == 0 and attacked_metrics["f1"] < args.success_f1_threshold
-            else:
-                success = bool(
-                    target_metrics
-                    and (
-                        target_metrics["em"] == 1
-                        or normalize_answer(target_answer) in normalize_answer(attacked_answer)
-                    )
+                success = (
+                    clean_judge["correct"] is True
+                    and attacked_judge["correct"] is False
                 )
-            clean_gold_selected = any(doc["source"] == "gold" for doc in clean_retrieved)
+            else:
+                success = bool(target_judge and target_judge["correct"] is True)
+            clean_gold_selected = any(
+                doc["document_id"] == selected_gold["document_id"]
+                for doc in clean_retrieved
+            )
             attacked_gold_selected = any(
-                doc["source"] == "attacked_gold" for doc in attacked_retrieved
+                doc["document_id"] == selected_gold["document_id"]
+                for doc in attacked_retrieved
             )
             retrieval_attack_success = (
                 clean_gold_selected and not attacked_gold_selected
@@ -466,21 +498,29 @@ def run_pipeline(args) -> dict[str, Any]:
                 "target_answer": target_answer,
                 "attack_mode": args.attack_mode,
                 "attack_order": "flip_gold_before_retrieval",
+                "attacked_document_id": selected_gold["document_id"],
+                "attacked_document_title": selected_gold["title"],
+                "original_attacked_document": selected_gold["text"],
+                "modified_attacked_document": attack_result.attacked_text,
                 "clean_retrieved_contexts": clean_retrieved,
                 "attacked_retrieved_contexts": attacked_retrieved,
-                "clean_gold_context": gold["text"],
+                "clean_gold_context": selected_gold["text"],
                 "attacked_gold_context": attack_result.attacked_text,
                 "clean_generated_answer": clean_answer,
                 "attacked_generated_answer": attacked_answer,
                 "clean_metrics": clean_metrics,
                 "attacked_metrics": attacked_metrics,
-                "target_metrics": target_metrics,
+                "clean_judge": clean_judge,
+                "attacked_judge": attacked_judge,
+                "target_judge": target_judge,
                 "retrieval_gold_selected_clean": clean_gold_selected,
                 "retrieval_attacked_gold_selected": attacked_gold_selected,
                 "retrieval_attack_success": retrieval_attack_success,
                 "attack_success": success,
                 "hotflip": attack_result.to_dict(),
-                "context_diff": context_diff(gold["text"], attack_result.attacked_text),
+                "context_diff": context_diff(
+                    selected_gold["text"], attack_result.attacked_text
+                ),
                 "runtime_seconds": time.perf_counter() - started,
             }
             results.append(result)
