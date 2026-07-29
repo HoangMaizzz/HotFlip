@@ -30,7 +30,9 @@ class CompareAttackTests(unittest.TestCase):
                 "attacks": {
                     "untargeted": {
                         "gold_judge": {"correct": False},
+                        "attacked_vs_baseline_judge": {"correct": False},
                         "attack_success": True,
+                        "relaxed_attack_success": True,
                         "modified_document_retrieved": True,
                     },
                     "targeted": {
@@ -46,8 +48,10 @@ class CompareAttackTests(unittest.TestCase):
                 "attacks": {
                     "untargeted": {
                         "gold_judge": {"correct": False},
+                        "attacked_vs_baseline_judge": {"correct": False},
                         "attack_success": False,
-                        "modified_document_retrieved": False,
+                        "relaxed_attack_success": True,
+                        "modified_document_retrieved": True,
                     },
                     "targeted": {
                         "gold_judge": {"correct": True},
@@ -62,6 +66,10 @@ class CompareAttackTests(unittest.TestCase):
         self.assertEqual(aggregate["baseline_accuracy"], 0.5)
         self.assertEqual(aggregate["untargeted"]["asr"], 1.0)
         self.assertEqual(aggregate["untargeted"]["asr_overall"], 0.5)
+        self.assertEqual(aggregate["untargeted"]["relaxed_asr_eligible"], 1.0)
+        self.assertEqual(
+            aggregate["untargeted"]["relaxed_asr_on_baseline_incorrect"], 1.0
+        )
         self.assertEqual(
             aggregate["untargeted"]["asr_on_baseline_correct"], 1.0
         )
@@ -87,13 +95,32 @@ class CompareAttackTests(unittest.TestCase):
             "attacks": {
                 "untargeted": {
                     "gold_judge": {"correct": False},
+                    "attacked_vs_baseline_judge": {"correct": False},
                     "attack_success": False,
+                    "relaxed_attack_success": False,
                     "modified_document_retrieved": False,
                 }
             },
         }]
         aggregate = aggregate_results(results, ["untargeted"])
         self.assertEqual(aggregate["untargeted"]["asr"], 0.0)
+        self.assertEqual(aggregate["untargeted"]["relaxed_asr_eligible"], 0.0)
+
+    def test_relaxed_success_rejects_semantically_same_attacked_answer(self):
+        results = [{
+            "baseline": {"correct": False},
+            "attacks": {
+                "untargeted": {
+                    "gold_judge": {"correct": False},
+                    "attacked_vs_baseline_judge": {"correct": True},
+                    "attack_success": False,
+                    "relaxed_attack_success": False,
+                    "modified_document_retrieved": True,
+                }
+            },
+        }]
+        aggregate = aggregate_results(results, ["untargeted"])
+        self.assertEqual(aggregate["untargeted"]["relaxed_asr_eligible"], 0.0)
 
 
 if __name__ == "__main__":

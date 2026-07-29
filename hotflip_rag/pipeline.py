@@ -598,6 +598,13 @@ def run_pipeline(args) -> dict[str, Any]:
             attacked_judge = generator.judge_answer(
                 item["question"], item["answer"], attacked_answer
             )
+            attacked_vs_clean_judge = (
+                generator.judge_answer(
+                    item["question"], clean_answer, attacked_answer
+                )
+                if args.attack_mode == "untargeted"
+                else None
+            )
             target_judge = (
                 generator.judge_answer(item["question"], target_answer, attacked_answer)
                 if target_answer
@@ -612,13 +619,21 @@ def run_pipeline(args) -> dict[str, Any]:
                 for doc in attacked_retrieved
             )
             if args.attack_mode == "untargeted":
-                success = (
+                strict_success = (
                     clean_judge["correct"] is True
                     and attacked_judge["correct"] is False
                     and attacked_gold_selected
                 )
+                relaxed_success = (
+                    attacked_judge["correct"] is False
+                    and attacked_vs_clean_judge["correct"] is False
+                    and attacked_gold_selected
+                )
+                success = strict_success
             else:
                 success = bool(target_judge and target_judge["correct"] is True)
+                strict_success = success
+                relaxed_success = None
             retrieval_attack_success = attacked_gold_selected
             result = {
                 "id": str(item["id"]),
@@ -640,11 +655,14 @@ def run_pipeline(args) -> dict[str, Any]:
                 "attacked_generated_answer": attacked_answer,
                 "clean_judge": clean_judge,
                 "attacked_judge": attacked_judge,
+                "attacked_vs_clean_judge": attacked_vs_clean_judge,
                 "target_judge": target_judge,
                 "retrieval_gold_selected_clean": clean_gold_selected,
                 "retrieval_attacked_gold_selected": attacked_gold_selected,
                 "retrieval_attack_success": retrieval_attack_success,
                 "attack_success": success,
+                "strict_attack_success": strict_success,
+                "relaxed_attack_success": relaxed_success,
                 "hotflip": attack_result.to_dict(),
                 "context_diff": context_diff(
                     selected_gold["text"], attack_result.attacked_text
@@ -676,6 +694,14 @@ def run_pipeline(args) -> dict[str, Any]:
         "skipped_or_failed": len(failures),
         "attack_success_rate": (
             sum(result["attack_success"] for result in results) / attempted if attempted else 0.0
+        ),
+        "strict_attack_success_rate": (
+            sum(result["strict_attack_success"] for result in results) / attempted
+            if attempted else 0.0
+        ),
+        "relaxed_attack_success_rate": (
+            sum(result["relaxed_attack_success"] is True for result in results) / attempted
+            if attempted and args.attack_mode == "untargeted" else None
         ),
         "clean_gold_retrieval_rate": (
             sum(result["retrieval_gold_selected_clean"] for result in results) / attempted
@@ -711,7 +737,8 @@ def run_pipeline(args) -> dict[str, Any]:
         "id", "question", "gold_answer", "target_answer", "clean_generated_answer",
         "attacked_generated_answer", "retrieval_gold_selected_clean",
         "retrieval_attacked_gold_selected", "retrieval_attack_success",
-        "attack_success", "runtime_seconds",
+        "strict_attack_success", "relaxed_attack_success", "attack_success",
+        "runtime_seconds",
     ]
     with (output_dir / "summary.csv").open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=summary_columns)

@@ -131,6 +131,22 @@ print(
     f"Modified-document retrieval   : "
     f"{metrics['modified_document_retrieval_rate'] * 100:.2f}%"
 )
+print(
+    f"Strict ASR                    : "
+    f"{metrics['strict_asr_on_baseline_correct'] * 100:.2f}%"
+)
+print(
+    f"Relaxed ASR                   : "
+    f"{metrics['relaxed_asr_eligible'] * 100:.2f}% "
+    f"({metrics['relaxed_asr_eligible_successes']}/"
+    f"{metrics['relaxed_asr_eligible_examples']})"
+)
+print(
+    f"Relaxed ASR, baseline wrong   : "
+    f"{metrics['relaxed_asr_on_baseline_incorrect'] * 100:.2f}% "
+    f"({metrics['relaxed_asr_on_baseline_incorrect_successes']}/"
+    f"{metrics['relaxed_asr_on_baseline_incorrect_examples']})"
+)
 
 import pandas as pd
 from IPython.display import display
@@ -146,6 +162,9 @@ display(
             "baseline_correct",
             "attacked_answer",
             "attacked_correct",
+            "attacked_equivalent_to_baseline",
+            "strict_attack_success",
+            "relaxed_attack_success",
             "attack_success",
             "attacked_document_title",
             "modified_document_retrieved",
