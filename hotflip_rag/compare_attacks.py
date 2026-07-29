@@ -141,6 +141,18 @@ def aggregate_results(results: list[dict[str, Any]], modes: list[str]) -> dict[s
             result["attacks"][mode]["gold_judge"]["correct"] for result in results
         ]
         attacked_accuracy, attacked_valid = safe_accuracy(attacked_values)
+        baseline_no_gold = [
+            result for result in results
+            if not result["baseline"]["any_gold_retrieved"]
+        ]
+        recovered_any_gold = sum(
+            result["attacks"][mode]["any_gold_retrieved"]
+            for result in baseline_no_gold
+        )
+        recovered_modified_gold = sum(
+            result["attacks"][mode]["modified_document_retrieved"]
+            for result in baseline_no_gold
+        )
         if mode == "untargeted":
             baseline_correct_eligible = [
                 result for result in results
@@ -239,6 +251,29 @@ def aggregate_results(results: list[dict[str, Any]], modes: list[str]) -> dict[s
                 / len(results)
                 if results else 0.0
             ),
+            "baseline_any_gold_retrieval_rate": (
+                sum(result["baseline"]["any_gold_retrieved"] for result in results)
+                / len(results)
+                if results else 0.0
+            ),
+            "attacked_any_gold_retrieval_rate": (
+                sum(result["attacks"][mode]["any_gold_retrieved"] for result in results)
+                / len(results)
+                if results else 0.0
+            ),
+            "baseline_no_gold_examples": len(baseline_no_gold),
+            "baseline_no_gold_then_any_gold_retrieved": recovered_any_gold,
+            "baseline_no_gold_then_any_gold_retrieval_rate": (
+                recovered_any_gold / len(baseline_no_gold)
+                if baseline_no_gold else 0.0
+            ),
+            "baseline_no_gold_then_modified_gold_retrieved": (
+                recovered_modified_gold
+            ),
+            "baseline_no_gold_then_modified_gold_retrieval_rate": (
+                recovered_modified_gold / len(baseline_no_gold)
+                if baseline_no_gold else 0.0
+            ),
         }
         if mode == "untargeted":
             mode_metrics.update({
@@ -325,11 +360,20 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
             item = dataset[dataset_index]
             documents = hotpot_passages(item)
             baseline_documents = reconstruct_baseline_documents(row, documents)
-            baseline_gold_ids = {
+            gold_document_ids = {
+                document["document_id"]
+                for document in documents
+                if document["source"] == "gold"
+            }
+            baseline_retrieved_ids = {
                 passage.get("document_id")
                 for passage in baseline_documents
-                if passage.get("source") == "gold"
             }
+            baseline_gold_ids = gold_document_ids & baseline_retrieved_ids
+            baseline_any_gold_retrieved = bool(baseline_gold_ids)
+            baseline_all_gold_retrieved = gold_document_ids.issubset(
+                baseline_retrieved_ids
+            )
             selection_pool = [
                 document for document in documents
                 if document["document_id"] in baseline_gold_ids
@@ -358,6 +402,8 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                     "judge_method": row.get("llm_judge_method"),
                     "judge_raw": row.get("llm_judge_raw"),
                     "retrieved_documents": baseline_documents,
+                    "any_gold_retrieved": baseline_any_gold_retrieved,
+                    "all_gold_retrieved": baseline_all_gold_retrieved,
                     "modified_document_retrieved": any(
                         passage.get("document_id") == selected_gold["document_id"]
                         for passage in baseline_documents
@@ -381,6 +427,13 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                 f"| cosine={selected_gold['score']:.6f}"
             )
             print(f"ORIGINAL DOCUMENT:\n{selected_gold['text']}")
+            print(
+                "BASELINE GOLD RETRIEVAL: "
+                f"any={baseline_any_gold_retrieved} "
+                f"| all={baseline_all_gold_retrieved} "
+                f"| retrieved_gold={len(baseline_gold_ids)}/"
+                f"{len(gold_document_ids)}"
+            )
             print_documents(
                 "BASELINE RETRIEVED DOCUMENTS",
                 baseline_documents,
@@ -424,6 +477,15 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                     passage["document_id"] == selected_gold["document_id"]
                     for passage in retrieved
                 )
+                attacked_retrieved_ids = {
+                    passage["document_id"] for passage in retrieved
+                }
+                attacked_any_gold_retrieved = bool(
+                    gold_document_ids & attacked_retrieved_ids
+                )
+                attacked_all_gold_retrieved = gold_document_ids.issubset(
+                    attacked_retrieved_ids
+                )
                 if mode == "targeted":
                     target_judge = generator.judge_answer(
                         item["question"], target_answer, answer
@@ -465,6 +527,16 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                     ),
                     "modified_document": attack_result.attacked_text,
                     "modified_document_retrieved": modified_retrieved,
+                    "any_gold_retrieved": attacked_any_gold_retrieved,
+                    "all_gold_retrieved": attacked_all_gold_retrieved,
+                    "gold_recovered_from_no_gold_baseline": (
+                        not baseline_any_gold_retrieved
+                        and attacked_any_gold_retrieved
+                    ),
+                    "modified_gold_recovered_from_no_gold_baseline": (
+                        not baseline_any_gold_retrieved
+                        and modified_retrieved
+                    ),
                     "retrieved_documents": retrieved,
                     "context_diff": context_diff(
                         selected_gold["text"], attack_result.attacked_text
@@ -476,6 +548,12 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                 print(f"MODIFIED DOCUMENT:\n{attack_result.attacked_text}")
                 print(f"DIFF             : {mode_result['context_diff']}")
                 print(f"ATTACKED ANSWER  : {answer}")
+                print(
+                    "ATTACKED GOLD RETRIEVAL: "
+                    f"any={attacked_any_gold_retrieved} "
+                    f"| all={attacked_all_gold_retrieved} "
+                    f"| modified_gold={modified_retrieved}"
+                )
                 print(
                     f"GOLD JUDGE       : correct={gold_judge['correct']} "
                     f"| method={gold_judge['method']} | raw={gold_judge['raw']!r}"
@@ -531,6 +609,11 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
         "attacked_vs_baseline_judge_method", "attacked_vs_baseline_judge_raw",
         "strict_attack_success", "relaxed_attack_success", "attack_success",
         "attacked_document_title", "attacked_document_id",
+        "selected_document_retrieved_at_baseline",
+        "baseline_any_gold_retrieved", "baseline_all_gold_retrieved",
+        "attacked_any_gold_retrieved", "attacked_all_gold_retrieved",
+        "gold_recovered_from_no_gold_baseline",
+        "modified_gold_recovered_from_no_gold_baseline",
         "modified_document_retrieved", "original_document", "modified_document",
         "retrieved_documents_json",
     ]
@@ -573,6 +656,23 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                     "attack_success": attack["attack_success"],
                     "attacked_document_title": result["selected_document"]["title"],
                     "attacked_document_id": result["selected_document"]["document_id"],
+                    "selected_document_retrieved_at_baseline": result[
+                        "baseline"
+                    ]["modified_document_retrieved"],
+                    "baseline_any_gold_retrieved": result["baseline"][
+                        "any_gold_retrieved"
+                    ],
+                    "baseline_all_gold_retrieved": result["baseline"][
+                        "all_gold_retrieved"
+                    ],
+                    "attacked_any_gold_retrieved": attack["any_gold_retrieved"],
+                    "attacked_all_gold_retrieved": attack["all_gold_retrieved"],
+                    "gold_recovered_from_no_gold_baseline": attack[
+                        "gold_recovered_from_no_gold_baseline"
+                    ],
+                    "modified_gold_recovered_from_no_gold_baseline": attack[
+                        "modified_gold_recovered_from_no_gold_baseline"
+                    ],
                     "modified_document_retrieved": attack["modified_document_retrieved"],
                     "original_document": result["selected_document"]["text"],
                     "modified_document": attack["modified_document"],
@@ -610,6 +710,23 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
             f"{metrics['asr_on_baseline_correct'] * 100:.2f}% "
             f"({metrics['asr_on_baseline_correct_successes']}/"
             f"{metrics['asr_on_baseline_correct_examples']})"
+        )
+        print(
+            f"{'':10} BASELINE ANY-GOLD RETRIEVAL="
+            f"{metrics['baseline_any_gold_retrieval_rate'] * 100:.2f}% "
+            f"| ATTACKED ANY-GOLD RETRIEVAL="
+            f"{metrics['attacked_any_gold_retrieval_rate'] * 100:.2f}%"
+        )
+        print(
+            f"{'':10} BASELINE NO-GOLD={metrics['baseline_no_gold_examples']} "
+            f"| RECOVERED ANY GOLD="
+            f"{metrics['baseline_no_gold_then_any_gold_retrieval_rate'] * 100:.2f}% "
+            f"({metrics['baseline_no_gold_then_any_gold_retrieved']}/"
+            f"{metrics['baseline_no_gold_examples']}) "
+            f"| RECOVERED MODIFIED GOLD="
+            f"{metrics['baseline_no_gold_then_modified_gold_retrieval_rate'] * 100:.2f}% "
+            f"({metrics['baseline_no_gold_then_modified_gold_retrieved']}/"
+            f"{metrics['baseline_no_gold_examples']})"
         )
         if mode == "untargeted":
             print(

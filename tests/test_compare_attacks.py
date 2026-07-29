@@ -26,7 +26,7 @@ class CompareAttackTests(unittest.TestCase):
     def test_asr_uses_llm_judgments(self):
         results = [
             {
-                "baseline": {"correct": True},
+                "baseline": {"correct": True, "any_gold_retrieved": True},
                 "attacks": {
                     "untargeted": {
                         "gold_judge": {"correct": False},
@@ -34,17 +34,19 @@ class CompareAttackTests(unittest.TestCase):
                         "attack_success": True,
                         "relaxed_attack_success": True,
                         "modified_document_retrieved": True,
+                        "any_gold_retrieved": True,
                     },
                     "targeted": {
                         "gold_judge": {"correct": False},
                         "baseline_target_judge": {"correct": False},
                         "target_judge": {"correct": True},
                         "modified_document_retrieved": True,
+                        "any_gold_retrieved": True,
                     },
                 },
             },
             {
-                "baseline": {"correct": False},
+                "baseline": {"correct": False, "any_gold_retrieved": False},
                 "attacks": {
                     "untargeted": {
                         "gold_judge": {"correct": False},
@@ -52,12 +54,14 @@ class CompareAttackTests(unittest.TestCase):
                         "attack_success": False,
                         "relaxed_attack_success": True,
                         "modified_document_retrieved": True,
+                        "any_gold_retrieved": True,
                     },
                     "targeted": {
                         "gold_judge": {"correct": True},
                         "baseline_target_judge": {"correct": False},
                         "target_judge": {"correct": False},
                         "modified_document_retrieved": False,
+                        "any_gold_retrieved": False,
                     },
                 },
             },
@@ -69,6 +73,18 @@ class CompareAttackTests(unittest.TestCase):
         self.assertEqual(aggregate["untargeted"]["relaxed_asr_eligible"], 1.0)
         self.assertEqual(
             aggregate["untargeted"]["relaxed_asr_on_baseline_incorrect"], 1.0
+        )
+        self.assertEqual(
+            aggregate["untargeted"][
+                "baseline_no_gold_then_any_gold_retrieval_rate"
+            ],
+            1.0,
+        )
+        self.assertEqual(
+            aggregate["untargeted"][
+                "baseline_no_gold_then_modified_gold_retrieval_rate"
+            ],
+            1.0,
         )
         self.assertEqual(
             aggregate["untargeted"]["asr_on_baseline_correct"], 1.0
@@ -91,7 +107,7 @@ class CompareAttackTests(unittest.TestCase):
 
     def test_untargeted_failure_when_modified_document_is_not_retrieved(self):
         results = [{
-            "baseline": {"correct": True},
+            "baseline": {"correct": True, "any_gold_retrieved": True},
             "attacks": {
                 "untargeted": {
                     "gold_judge": {"correct": False},
@@ -99,6 +115,7 @@ class CompareAttackTests(unittest.TestCase):
                     "attack_success": False,
                     "relaxed_attack_success": False,
                     "modified_document_retrieved": False,
+                    "any_gold_retrieved": False,
                 }
             },
         }]
@@ -108,7 +125,7 @@ class CompareAttackTests(unittest.TestCase):
 
     def test_relaxed_success_rejects_semantically_same_attacked_answer(self):
         results = [{
-            "baseline": {"correct": False},
+            "baseline": {"correct": False, "any_gold_retrieved": True},
             "attacks": {
                 "untargeted": {
                     "gold_judge": {"correct": False},
@@ -116,6 +133,7 @@ class CompareAttackTests(unittest.TestCase):
                     "attack_success": False,
                     "relaxed_attack_success": False,
                     "modified_document_retrieved": True,
+                    "any_gold_retrieved": True,
                 }
             },
         }]

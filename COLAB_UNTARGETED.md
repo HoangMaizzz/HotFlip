@@ -147,6 +147,22 @@ print(
     f"({metrics['relaxed_asr_on_baseline_incorrect_successes']}/"
     f"{metrics['relaxed_asr_on_baseline_incorrect_examples']})"
 )
+print(
+    f"Baseline không lấy gold       : "
+    f"{metrics['baseline_no_gold_examples']} câu"
+)
+print(
+    f"Sau sửa lấy được gold bất kỳ  : "
+    f"{metrics['baseline_no_gold_then_any_gold_retrieval_rate'] * 100:.2f}% "
+    f"({metrics['baseline_no_gold_then_any_gold_retrieved']}/"
+    f"{metrics['baseline_no_gold_examples']})"
+)
+print(
+    f"Sau sửa lấy đúng gold đã sửa  : "
+    f"{metrics['baseline_no_gold_then_modified_gold_retrieval_rate'] * 100:.2f}% "
+    f"({metrics['baseline_no_gold_then_modified_gold_retrieved']}/"
+    f"{metrics['baseline_no_gold_examples']})"
+)
 
 import pandas as pd
 from IPython.display import display
@@ -166,6 +182,10 @@ display(
             "strict_attack_success",
             "relaxed_attack_success",
             "attack_success",
+            "baseline_any_gold_retrieved",
+            "attacked_any_gold_retrieved",
+            "gold_recovered_from_no_gold_baseline",
+            "modified_gold_recovered_from_no_gold_baseline",
             "attacked_document_title",
             "modified_document_retrieved",
             "original_document",
