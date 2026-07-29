@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import unittest
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 
 import torch
@@ -196,6 +198,21 @@ class HotFlipTests(unittest.TestCase):
         self.assertLessEqual(len(changed), 2)
         self.assertNotIn(0, changed)
         self.assertNotIn(len(result.original_input_ids) - 1, changed)
+
+    def test_trace_prints_each_search_step(self):
+        attacker = self.attacker(
+            attack_mode="untargeted",
+            trace=True,
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            attacker.attack(
+                "alpha", "alpha bravo", avoid_answer="delta"
+            )
+        trace = output.getvalue()
+        self.assertIn("[HOTFLIP TRACE] step=0", trace)
+        self.assertIn("[HOTFLIP TRACE] step=1", trace)
+        self.assertIn("[HOTFLIP TRACE] finished", trace)
 
     def test_mean_pool_ignores_padding(self):
         hidden = torch.tensor([[[1.0, 0.0], [3.0, 2.0], [100.0, 100.0]]])

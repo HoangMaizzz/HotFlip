@@ -100,6 +100,7 @@ def make_attacker(
         untargeted_answer_weight=args.untargeted_answer_weight,
         score_chunk_size=args.score_chunk_size,
         max_context_tokens=args.max_context_tokens,
+        trace=args.trace_hotflip,
     )
     return ContrieverHotFlipAttacker(
         retriever_model, retriever_tokenizer, config, device
@@ -806,6 +807,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-dir", default="outputs/attack_comparison")
     parser.add_argument("--fail-fast", action="store_true")
+    parser.add_argument(
+        "--trace-hotflip",
+        action="store_true",
+        help="Print each HotFlip beam-search step as it is completed.",
+    )
     return parser
 
 

@@ -36,6 +36,7 @@ class HotFlipConfig:
     untargeted_answer_weight: float = 1.0
     score_chunk_size: int = 2048
     max_context_tokens: int = 512
+    trace: bool = False
 
     def validate(self) -> None:
         if self.attack_mode not in {"untargeted", "targeted"}:
@@ -423,7 +424,38 @@ class ContrieverHotFlipAttacker:
         )
         beam = [initial]
         stop_reason = "budget_exhausted"
+        if self.config.trace:
+            similarity_label = (
+                "gold_answer_cos"
+                if self.config.attack_mode == "untargeted"
+                else "target_answer_cos"
+            )
+            print(
+                "[HOTFLIP TRACE] "
+                f"mode={self.config.attack_mode} "
+                f"strategy={self.config.search_strategy} "
+                f"beam_width={self.config.beam_width} "
+                f"budget={self.config.max_token_changes}",
+                flush=True,
+            )
+            print(
+                "[HOTFLIP TRACE] "
+                f"step=0 objective={initial.objective:.6f} "
+                f"query_cos={initial.query_similarity:.6f} "
+                f"{similarity_label}="
+                f"{initial.target_similarity if initial.target_similarity is not None else 'N/A'} "
+                f"tokens={input_ids.shape[1]} "
+                f"modifiable={int(modifiable_mask.sum())}",
+                flush=True,
+            )
         for step in range(1, self.config.max_token_changes + 1):
+            if self.config.trace:
+                print(
+                    "[HOTFLIP TRACE] "
+                    f"step={step} expanding_parents={len(beam)} "
+                    f"candidates_per_parent<={self.config.candidates_per_state}",
+                    flush=True,
+                )
             expanded: list[AttackState] = []
             for state in beam:
                 expanded.extend(
@@ -434,6 +466,11 @@ class ContrieverHotFlipAttacker:
                 )
             if not expanded:
                 stop_reason = "no_valid_candidate"
+                if self.config.trace:
+                    print(
+                        f"[HOTFLIP TRACE] step={step} stop={stop_reason}",
+                        flush=True,
+                    )
                 break
             deduplicated: dict[tuple[int, ...], AttackState] = {}
             for state in expanded:
@@ -444,9 +481,46 @@ class ContrieverHotFlipAttacker:
             best_previous = max(state.objective for state in beam)
             if ranked[0].objective - best_previous < self.config.min_objective_improvement:
                 stop_reason = "insufficient_improvement"
+                if self.config.trace:
+                    print(
+                        "[HOTFLIP TRACE] "
+                        f"step={step} stop={stop_reason} "
+                        f"best_delta={ranked[0].objective - best_previous:.6f}",
+                        flush=True,
+                    )
                 break
             width = 1 if self.config.search_strategy == "greedy" else self.config.beam_width
             beam = ranked[:width]
+            if self.config.trace:
+                print(
+                    "[HOTFLIP TRACE] "
+                    f"step={step} expanded={len(expanded)} "
+                    f"unique={len(ranked)} kept={len(beam)}",
+                    flush=True,
+                )
+                for rank, state in enumerate(beam, 1):
+                    change = state.changes[-1]
+                    similarity_label = (
+                        "gold_answer_cos"
+                        if self.config.attack_mode == "untargeted"
+                        else "target_answer_cos"
+                    )
+                    target_value = (
+                        f"{state.target_similarity:.6f}"
+                        if state.target_similarity is not None
+                        else "N/A"
+                    )
+                    print(
+                        "[HOTFLIP TRACE] "
+                        f"step={step} beam_rank={rank} "
+                        f"position={change.context_position} "
+                        f"{change.original_token!r}->{change.replacement_token!r} "
+                        f"approx={change.approximate_score:.6f} "
+                        f"objective={state.objective:.6f} "
+                        f"query_cos={state.query_similarity:.6f} "
+                        f"{similarity_label}={target_value}",
+                        flush=True,
+                    )
         best = max(beam, key=lambda state: state.objective)
         if len(best.changed_positions) > self.config.max_token_changes:
             raise AssertionError("HotFlip exceeded the unique-position attack budget")
@@ -456,6 +530,17 @@ class ContrieverHotFlipAttacker:
         attacked_text = self.render_attacked_text(
             gold_context, best.input_ids, best.changes, offsets
         )
+        if self.config.trace:
+            print(
+                "[HOTFLIP TRACE] "
+                f"finished stop={stop_reason} changes={len(best.changes)} "
+                f"objective={initial.objective:.6f}->{best.objective:.6f} "
+                f"query_cos={initial.query_similarity:.6f}->"
+                f"{best.query_similarity:.6f} "
+                f"forward_passes={self.forward_passes} "
+                f"backward_passes={self.backward_passes}",
+                flush=True,
+            )
         return AttackResult(
             original_text=gold_context,
             attacked_text=attacked_text,
