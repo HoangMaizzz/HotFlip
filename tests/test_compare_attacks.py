@@ -40,6 +40,8 @@ class CompareAttackTests(unittest.TestCase):
                         "gold_judge": {"correct": False},
                         "baseline_target_judge": {"correct": False},
                         "target_judge": {"correct": True},
+                        "strict_attack_success": True,
+                        "relaxed_attack_success": True,
                         "modified_document_retrieved": True,
                         "any_gold_retrieved": True,
                     },
@@ -60,6 +62,8 @@ class CompareAttackTests(unittest.TestCase):
                         "gold_judge": {"correct": True},
                         "baseline_target_judge": {"correct": False},
                         "target_judge": {"correct": False},
+                        "strict_attack_success": False,
+                        "relaxed_attack_success": False,
                         "modified_document_retrieved": False,
                         "any_gold_retrieved": False,
                     },
@@ -98,6 +102,35 @@ class CompareAttackTests(unittest.TestCase):
         self.assertEqual(aggregate["targeted"]["asr_eligible_examples"], 2)
         self.assertEqual(
             aggregate["targeted"]["asr_on_baseline_correct_examples"], 1
+        )
+        self.assertEqual(
+            aggregate["targeted"]["relaxed_targeted_asr_eligible"], 0.5
+        )
+        self.assertEqual(
+            aggregate["targeted"]["strict_targeted_asr_eligible"], 0.5
+        )
+
+    def test_targeted_strict_success_requires_modified_document_retrieval(self):
+        results = [{
+            "baseline": {"correct": True, "any_gold_retrieved": True},
+            "attacks": {
+                "targeted": {
+                    "gold_judge": {"correct": False},
+                    "baseline_target_judge": {"correct": False},
+                    "target_judge": {"correct": True},
+                    "strict_attack_success": False,
+                    "relaxed_attack_success": True,
+                    "modified_document_retrieved": False,
+                    "any_gold_retrieved": True,
+                }
+            },
+        }]
+        aggregate = aggregate_results(results, ["targeted"])
+        self.assertEqual(
+            aggregate["targeted"]["relaxed_targeted_asr_eligible"], 1.0
+        )
+        self.assertEqual(
+            aggregate["targeted"]["strict_targeted_asr_eligible"], 0.0
         )
 
     def test_optional_bool_parser(self):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,19 @@ from .pipeline import (
     set_seed,
     target_for_example,
 )
+
+
+@dataclass
+class ComparisonRuntime:
+    """Models and dataset shared by several comparison configurations."""
+
+    device: torch.device
+    retriever: ContrieverRetriever
+    generator: QAGenerator
+    retriever_model: Any
+    retriever_tokenizer: Any
+    dataset: Any
+    id_to_index: dict[str, int]
 
 
 def parse_optional_bool(value: Any) -> bool | None:
@@ -197,16 +211,26 @@ def aggregate_results(results: list[dict[str, Any]], modes: list[str]) -> dict[s
                 if result["attacks"][mode]["baseline_target_judge"]["correct"] is False
                 and result["attacks"][mode]["target_judge"]["correct"] is not None
             ]
-            successes_overall = sum(
-                result["attacks"][mode]["target_judge"]["correct"] is True
+            target_relaxed_successes = sum(
+                result["attacks"][mode]["relaxed_attack_success"] is True
                 for result in target_eligible
             )
+            target_strict_successes = sum(
+                result["attacks"][mode]["strict_attack_success"] is True
+                for result in target_eligible
+            )
+            # Keep the historical ASR fields as aliases of relaxed targeted ASR.
+            successes_overall = target_relaxed_successes
             baseline_correct_eligible = [
                 result for result in target_eligible
                 if result["baseline"]["correct"] is True
             ]
             correct_subset_successes = sum(
-                result["attacks"][mode]["target_judge"]["correct"] is True
+                result["attacks"][mode]["relaxed_attack_success"] is True
+                for result in baseline_correct_eligible
+            )
+            strict_correct_subset_successes = sum(
+                result["attacks"][mode]["strict_attack_success"] is True
                 for result in baseline_correct_eligible
             )
             correct_subset_size = len(baseline_correct_eligible)
@@ -306,21 +330,38 @@ def aggregate_results(results: list[dict[str, Any]], modes: list[str]) -> dict[s
                     relaxed_baseline_incorrect_eligible
                 ),
             })
+        else:
+            mode_metrics.update({
+                "relaxed_targeted_asr_overall": (
+                    target_relaxed_successes / len(results) if results else 0.0
+                ),
+                "relaxed_targeted_asr_eligible": (
+                    target_relaxed_successes / len(target_eligible)
+                    if target_eligible else 0.0
+                ),
+                "relaxed_targeted_successes": target_relaxed_successes,
+                "strict_targeted_asr_overall": (
+                    target_strict_successes / len(results) if results else 0.0
+                ),
+                "strict_targeted_asr_eligible": (
+                    target_strict_successes / len(target_eligible)
+                    if target_eligible else 0.0
+                ),
+                "strict_targeted_successes": target_strict_successes,
+                "strict_targeted_asr_on_baseline_correct": (
+                    strict_correct_subset_successes / correct_subset_size
+                    if correct_subset_size else 0.0
+                ),
+                "targeted_eligible_examples": len(target_eligible),
+            })
         aggregate[mode] = mode_metrics
     return aggregate
 
 
-def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
-    from datasets import load_dataset
+def prepare_comparison_runtime(args: argparse.Namespace) -> ComparisonRuntime:
+    """Load the expensive models and HotpotQA split once for repeated runs."""
 
-    set_seed(args.seed)
-    rows = load_baseline_rows(args.baseline_results, args.num_examples)
-    if "targeted" in args.modes and not (
-        args.target_answer or args.target_answer_file
-    ):
-        raise ValueError(
-            "Targeted comparison requires --target-answer or --target-answer-file"
-        )
+    from datasets import load_dataset
 
     device = torch.device(args.device)
     retriever_model, retriever_tokenizer, generator_model, generator_tokenizer = (
@@ -332,19 +373,50 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
     generator = QAGenerator(
         generator_model, generator_tokenizer, args.max_generator_input_tokens
     )
-    attackers = {
-        mode: make_attacker(
-            mode, args, retriever_model, retriever_tokenizer, device
-        )
-        for mode in args.modes
-    }
-
     print(
         f"[dataset] Loading hotpotqa/hotpot_qa, config=distractor, split={args.split}",
         flush=True,
     )
     dataset = load_dataset("hotpotqa/hotpot_qa", "distractor", split=args.split)
     id_to_index = {str(item_id): index for index, item_id in enumerate(dataset["id"])}
+    return ComparisonRuntime(
+        device=device,
+        retriever=retriever,
+        generator=generator,
+        retriever_model=retriever_model,
+        retriever_tokenizer=retriever_tokenizer,
+        dataset=dataset,
+        id_to_index=id_to_index,
+    )
+
+
+def run_comparison(
+    args: argparse.Namespace,
+    runtime: ComparisonRuntime | None = None,
+) -> dict[str, Any]:
+    set_seed(args.seed)
+    rows = load_baseline_rows(args.baseline_results, args.num_examples)
+    if "targeted" in args.modes and not (
+        args.target_answer or args.target_answer_file
+    ):
+        raise ValueError(
+            "Targeted comparison requires --target-answer or --target-answer-file"
+        )
+
+    runtime = runtime or prepare_comparison_runtime(args)
+    device = runtime.device
+    retriever = runtime.retriever
+    generator = runtime.generator
+    retriever_model = runtime.retriever_model
+    retriever_tokenizer = runtime.retriever_tokenizer
+    dataset = runtime.dataset
+    id_to_index = runtime.id_to_index
+    attackers = {
+        mode: make_attacker(
+            mode, args, retriever_model, retriever_tokenizer, device
+        )
+        for mode in args.modes
+    }
     targets = load_targets(args.target_answer_file, args.target_answer)
 
     output_dir = Path(args.output_dir)
@@ -494,10 +566,14 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                     baseline_target_judge = generator.judge_answer(
                         item["question"], target_answer, row["llm_answer"]
                     )
-                    success = (
+                    relaxed_success = (
                         baseline_target_judge["correct"] is False
                         and target_judge["correct"] is True
                     )
+                    strict_success = relaxed_success and modified_retrieved
+                    # Backward-compatible attack_success remains the relaxed
+                    # target-match definition used by earlier result files.
+                    success = relaxed_success
                 else:
                     attacked_vs_baseline_judge = generator.judge_answer(
                         item["question"], row["llm_answer"], answer
@@ -520,12 +596,8 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                     "baseline_target_judge": baseline_target_judge,
                     "attacked_vs_baseline_judge": attacked_vs_baseline_judge,
                     "attack_success": success,
-                    "strict_attack_success": (
-                        strict_success if mode == "untargeted" else success
-                    ),
-                    "relaxed_attack_success": (
-                        relaxed_success if mode == "untargeted" else None
-                    ),
+                    "strict_attack_success": strict_success,
+                    "relaxed_attack_success": relaxed_success,
                     "modified_document": attack_result.attacked_text,
                     "modified_document_retrieved": modified_retrieved,
                     "any_gold_retrieved": attacked_any_gold_retrieved,
@@ -575,7 +647,8 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                     print(f"STRICT SUCCESS   : {strict_success}")
                     print(f"RELAXED SUCCESS  : {relaxed_success}")
                 else:
-                    print(f"ATTACK SUCCESS   : {success}")
+                    print(f"RELAXED SUCCESS  : {relaxed_success}")
+                    print(f"STRICT SUCCESS   : {strict_success}")
                 print_documents(
                     f"{mode.upper()} RETRIEVED DOCUMENTS",
                     retrieved,
@@ -747,6 +820,20 @@ def run_comparison(args: argparse.Namespace) -> dict[str, Any]:
                 f"{metrics['relaxed_asr_on_baseline_incorrect'] * 100:.2f}% "
                 f"({metrics['relaxed_asr_on_baseline_incorrect_successes']}/"
                 f"{metrics['relaxed_asr_on_baseline_incorrect_examples']})"
+            )
+        else:
+            print(
+                f"{'':10} RELAXED TARGETED ASR="
+                f"{metrics['relaxed_targeted_asr_eligible'] * 100:.2f}% "
+                f"({metrics['relaxed_targeted_successes']}/"
+                f"{metrics['targeted_eligible_examples']}; target answer reached)"
+            )
+            print(
+                f"{'':10} STRICT TARGETED ASR="
+                f"{metrics['strict_targeted_asr_eligible'] * 100:.2f}% "
+                f"({metrics['strict_targeted_successes']}/"
+                f"{metrics['targeted_eligible_examples']}; "
+                "target answer reached + modified doc retrieved)"
             )
     print(f"Results saved to: {output_dir.resolve()}")
     return aggregate
